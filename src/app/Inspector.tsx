@@ -40,17 +40,8 @@ const GROUPS: Group[] = [
       },
       { key: 'strokeWidth', label: 'Stroke width', hint: 'Line thickness, as a share of the cell size.', styles: ['cross', 'diagonal', 'lines'] },
       { key: 'sizeByBrightness', label: 'Grow with light', hint: 'Brighter cells get bigger marks.', kind: 'check', styles: SHAPES },
-      { key: 'ditherAlgo', label: 'Algorithm', kind: 'select', options: opts(DITHER_ALGOS), styles: ['dither'] },
-      { key: 'palette', label: 'Palette', kind: 'select', options: opts(PALETTE_NAMES, { auto: 'Colors picked from the image', source: 'Image colors, reduced per channel' }), styles: ['dither'] },
-      { key: 'ditherLevels', label: 'Colors', hint: 'Palette size for auto, levels per channel for source.', styles: ['dither'] },
-      { key: 'pixelSize', label: 'Pixel size', styles: ['dither'] },
-      { key: 'ditherSpread', label: 'Strength', hint: 'How far errors spread to neighbors (diffusion algorithms).', styles: ['dither'] },
-    ],
-  },
-  {
-    title: 'Where glyphs appear', styles: GLYPH, fields: [
       {
-        key: 'highlightMode', label: 'Bright means', kind: 'select',
+        key: 'highlightMode', label: 'Bright means', kind: 'select', styles: GLYPH,
         options: opts(HIGHLIGHT_MODES, {
           absolute: 'Brighter than the threshold, the same for every photo',
           relative: 'Among the brightest parts of this photo. Threshold = share of the image left bare',
@@ -60,19 +51,24 @@ const GROUPS: Group[] = [
         also: (v, base) => (v === 'relative' ? { threshold: 0.7 } : { threshold: base.threshold }),
       },
       {
-        key: 'threshold', label: 'Threshold', when: (p) => p.coverage !== 'full',
+        key: 'threshold', label: 'Threshold', styles: GLYPH, when: (p) => p.coverage !== 'full',
         hint: (p) => ({
           absolute: 'Cells darker than this get no glyph. Raise it to keep glyphs to the highlights.',
           relative: 'Share of the image left without glyphs. 0.7 puts glyphs on the brightest 30%.',
           local: 'How much brighter than its surroundings a cell must be to get a glyph.',
         })[p.highlightMode],
       },
-      { key: 'thresholdSoftness', label: 'Fade-in', hint: 'How gradually glyphs appear above the threshold.', when: (p) => p.coverage !== 'full' },
-      { key: 'localRadius', label: 'Surroundings', hint: 'How large an area each cell is compared against.', when: (p) => p.highlightMode === 'local' },
+      { key: 'thresholdSoftness', label: 'Fade-in', styles: GLYPH, hint: 'How gradually glyphs appear above the threshold.', when: (p) => p.coverage !== 'full' },
+      { key: 'localRadius', label: 'Surroundings', styles: GLYPH, hint: 'How large an area each cell is compared against.', when: (p) => p.highlightMode === 'local' },
+      { key: 'ditherAlgo', label: 'Algorithm', kind: 'select', options: opts(DITHER_ALGOS), styles: ['dither'] },
+      { key: 'palette', label: 'Palette', kind: 'select', options: opts(PALETTE_NAMES, { auto: 'Colors picked from the image', source: 'Image colors, reduced per channel' }), styles: ['dither'] },
+      { key: 'ditherLevels', label: 'Colors', hint: 'Palette size for auto, levels per channel for source.', styles: ['dither'] },
+      { key: 'pixelSize', label: 'Pixel size', styles: ['dither'] },
+      { key: 'ditherSpread', label: 'Strength', hint: 'How far errors spread to neighbors (diffusion algorithms).', styles: ['dither'] },
     ],
   },
   {
-    title: 'Glyph color', styles: GLYPH, fields: [
+    title: 'Glyph color', styles: GLYPH, collapsed: true, fields: [
       { key: 'colorMode', label: 'Color', kind: 'select', options: opts(COLOR_MODES, { source: 'Each glyph takes the photo color under it', mono: 'One color for every glyph' }) },
       { key: 'monoColor', label: 'Mono color', kind: 'color', when: (p) => p.colorMode === 'mono' },
       { key: 'glyphTint', label: 'Whiten', hint: 'Mixes glyph colors toward white.' },
