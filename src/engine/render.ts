@@ -94,7 +94,9 @@ export function render(src: RGBAImage, p: Params, opts: RenderOptions): RenderRe
   let out: FImage;
   let glow: FImage | undefined;
   let text: string | undefined;
-  if (p.style === 'dither') {
+  if (p.style === 'photo') {
+    out = cloneF(img); // the cached adjusted image must not be modified
+  } else if (p.style === 'dither') {
     out = renderDither(img, p, s, (k, make) => memo(`${adjKey}|${k}`, make));
   } else {
     // Source pixels per output pixel: keeps the 1px stroke floor in output pixels so previews match exports.

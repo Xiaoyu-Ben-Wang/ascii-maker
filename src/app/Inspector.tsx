@@ -1,5 +1,5 @@
 import { Crosshair } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 import {
   COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, RANGES, STYLES, type Params, type Style,
 } from '../engine/index.ts';
@@ -10,7 +10,11 @@ type Option = { value: string; label: string; hint?: string };
 interface Field { key: keyof Params; label: string; hint?: string | ((p: Params) => string); kind?: Kind; options?: readonly Option[]; styles?: readonly Style[]; when?: (p: Params) => boolean;
   /** Extra params to change along with this field. */
   also?: (v: unknown, base: Params) => Partial<Params> }
-interface Group { title: string; styles?: readonly Style[]; fields: Field[]; collapsed?: boolean }
+/**
+ * `switch` puts an on/off switch in the header for a numeric effect: off sets it to 0, on restores its last value
+ * (or `on`). The section starts collapsed while the effect is off.
+ */
+interface Group { title: string; styles?: readonly Style[]; fields: Field[]; collapsed?: boolean; switch?: { key: keyof Params; on: number }; styling?: boolean }
 
 const GLYPH: Style[] = ['characters', 'cross', 'diagonal', 'dots', 'lines'];
 const SHAPES: Style[] = ['cross', 'diagonal', 'dots', 'lines'];
@@ -21,14 +25,14 @@ const opts = <T extends string>(values: readonly T[], hints: Partial<Record<T, s
 
 const GROUPS: Group[] = [
   {
-    title: 'Glyphs', styles: GLYPH, fields: [
+    title: 'Highlight styling', styling: true, fields: [
       {
-        key: 'coverage', label: 'Coverage', kind: 'select',
+        key: 'coverage', label: 'Coverage', kind: 'select', styles: GLYPH,
         options: opts(COVERAGES, { highlights: 'Glyphs only on bright parts, over the photo', full: 'Every cell becomes a glyph, like classic ASCII art' }),
         // Full coverage hides the photo underneath so only glyphs remain; going back restores it.
         also: (v, base) => ({ bgOpacity: v === 'full' ? 0 : base.coverage === 'full' ? DEFAULTS.bgOpacity : base.bgOpacity }),
       },
-      { key: 'cellSize', label: 'Size', hint: 'Height of each glyph cell. Smaller means more, finer glyphs.' },
+      { key: 'cellSize', label: 'Size', styles: GLYPH, hint: 'Height of each glyph cell. Smaller means more, finer glyphs.' },
       { key: 'charset', label: 'Characters', hint: 'Used from dark to bright, left to right.', kind: 'text', styles: ['characters'] },
       {
         key: 'diagonalMode', label: 'Direction', kind: 'select', styles: ['diagonal'],
@@ -36,6 +40,11 @@ const GROUPS: Group[] = [
       },
       { key: 'strokeWidth', label: 'Stroke width', hint: 'Line thickness, as a share of the cell size.', styles: ['cross', 'diagonal', 'lines'] },
       { key: 'sizeByBrightness', label: 'Grow with light', hint: 'Brighter cells get bigger marks.', kind: 'check', styles: SHAPES },
+      { key: 'ditherAlgo', label: 'Algorithm', kind: 'select', options: opts(DITHER_ALGOS), styles: ['dither'] },
+      { key: 'palette', label: 'Palette', kind: 'select', options: opts(PALETTE_NAMES, { auto: 'Colors picked from the image', source: 'Image colors, reduced per channel' }), styles: ['dither'] },
+      { key: 'ditherLevels', label: 'Colors', hint: 'Palette size for auto, levels per channel for source.', styles: ['dither'] },
+      { key: 'pixelSize', label: 'Pixel size', styles: ['dither'] },
+      { key: 'ditherSpread', label: 'Strength', hint: 'How far errors spread to neighbors (diffusion algorithms).', styles: ['dither'] },
     ],
   },
   {
@@ -80,30 +89,37 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: 'Dither', styles: ['dither'], fields: [
-      { key: 'ditherAlgo', label: 'Algorithm', kind: 'select', options: opts(DITHER_ALGOS) },
-      { key: 'palette', label: 'Palette', kind: 'select', options: opts(PALETTE_NAMES, { auto: 'Colors picked from the image', source: 'Image colors, reduced per channel' }) },
-      { key: 'ditherLevels', label: 'Colors', hint: 'Palette size for auto, levels per channel for source.' },
-      { key: 'pixelSize', label: 'Pixel size' },
-      { key: 'ditherSpread', label: 'Strength', hint: 'How far errors spread to neighbors (diffusion algorithms).' },
-    ],
-  },
-  {
-    title: 'Glow', fields: [
+    title: 'Glow', switch: { key: 'bloom', on: 0.6 }, fields: [
       { key: 'bloom', label: 'Strength', hint: 'Halo around bright glyphs or pixels.' },
-      { key: 'bloomRadius', label: 'Radius', when: (p) => p.bloom > 0 },
-      { key: 'bloomThreshold', label: 'Threshold', hint: 'Only parts brighter than this glow.', when: (p) => p.bloom > 0 },
+      { key: 'bloomRadius', label: 'Radius' },
+      { key: 'bloomThreshold', label: 'Threshold', hint: 'Only parts brighter than this glow.' },
     ],
   },
   {
-    title: 'Effects', fields: [
-      { key: 'blur', label: 'Overall blur', hint: 'Blurs the finished image.' },
-      { key: 'scanlines', label: 'Scanlines' },
-      { key: 'scanlineSpacing', label: 'Line spacing', when: (p) => p.scanlines > 0 },
-      { key: 'vignette', label: 'Vignette', hint: 'Darkens toward the edges.' },
-      { key: 'vignetteX', label: 'Center', kind: 'point', when: (p) => p.vignette > 0 },
-      { key: 'chromatic', label: 'Color fringe', hint: 'Chromatic aberration: splits red and blue toward the edges.' },
-      { key: 'grain', label: 'Grain' },
+    title: 'Scanlines', switch: { key: 'scanlines', on: 0.4 }, fields: [
+      { key: 'scanlines', label: 'Strength' },
+      { key: 'scanlineSpacing', label: 'Line spacing' },
+    ],
+  },
+  {
+    title: 'Vignette', switch: { key: 'vignette', on: 0.2 }, fields: [
+      { key: 'vignette', label: 'Strength', hint: 'Darkens toward the edges.' },
+      { key: 'vignetteX', label: 'Center', kind: 'point' },
+    ],
+  },
+  {
+    title: 'Color fringe', switch: { key: 'chromatic', on: 1.5 }, fields: [
+      { key: 'chromatic', label: 'Strength', hint: 'Chromatic aberration: splits red and blue toward the edges.' },
+    ],
+  },
+  {
+    title: 'Grain', switch: { key: 'grain', on: 0.05 }, fields: [
+      { key: 'grain', label: 'Strength' },
+    ],
+  },
+  {
+    title: 'Blur', switch: { key: 'blur', on: 1.5 }, fields: [
+      { key: 'blur', label: 'Strength', hint: 'Blurs the finished image.' },
     ],
   },
   {
@@ -125,7 +141,7 @@ const GROUPS: Group[] = [
 ];
 
 const STYLE_GLYPH: Record<Style, string> = {
-  characters: '@#a', cross: '+×+', diagonal: '/\\/', dots: '•●•', lines: '│|│', dither: '▚▞▚',
+  characters: '@#a', cross: '+×+', diagonal: '/\\/', dots: '•●•', lines: '│|│', dither: '▚▞▚', photo: '▢▢▢',
 };
 
 type Set = (patch: Partial<Params>) => void;
@@ -155,10 +171,10 @@ const FieldControl = memo(function FieldControl({ f, hint, value, set, base, bas
   );
 });
 
-export function StylePicker({ style, onChange }: { style: Style; onChange: (s: Style) => void }) {
+function StylePicker({ style, onChange }: { style: Style; onChange: (s: Style) => void }) {
   return (
-    <div role="radiogroup" aria-label="Style" className="grid grid-cols-3 gap-1.5 px-4 pt-3 pb-4">
-      {STYLES.map((s) => (
+    <div role="radiogroup" aria-label="Style" className="grid grid-cols-3 gap-1.5 pt-1 pb-2">
+      {STYLES.filter((s) => s !== 'photo').map((s) => (
         <button
           key={s}
           role="radio"
@@ -170,7 +186,7 @@ export function StylePicker({ style, onChange }: { style: Style; onChange: (s: S
           )}
         >
           <span className="font-mono text-[15px] leading-none tracking-[0.15em]">{STYLE_GLYPH[s]}</span>
-          <span className="text-[11px] capitalize">{s}</span>
+          <span className="text-[11px] capitalize">{s === 'characters' ? 'ASCII' : s}</span>
         </button>
       ))}
     </div>
@@ -199,18 +215,48 @@ function PointField({ label, params, base, set, picking, onPicking }: { label: s
   );
 }
 
-export function Inspector({ params, base, set, picking, onPicking }: { params: Params; base: Params; set: Set; picking: boolean; onPicking: (v: boolean) => void }) {
+export function Inspector({ params, base, set, picking, onPicking, resetKey }: {
+  params: Params; base: Params; set: Set; picking: boolean; onPicking: (v: boolean) => void;
+  /** Changes when a preset is applied, so sections re-open or collapse to match it. */
+  resetKey: string;
+}) {
+  // Values from before a switch was turned off, restored when it's turned back on.
+  const last = useRef<Partial<Record<keyof Params, unknown>>>({});
+  const fieldsOf = (g: Group) => g.fields
+    .filter((f) => (!f.styles || f.styles.includes(params.style)) && (!f.when || f.when(params)))
+    .map((f) => f.kind === 'point'
+      ? <PointField key={f.key} label={f.label} params={params} base={base} set={set} picking={picking} onPicking={onPicking} />
+      : <FieldControl key={f.key} f={f} hint={typeof f.hint === 'function' ? f.hint(params) : f.hint} value={params[f.key]} base={base[f.key]} baseParams={base} set={set} />);
   return (
     <>
-      {GROUPS.filter((g) => !g.styles || g.styles.includes(params.style)).map((g) => (
-        <Section key={g.title} title={g.title} defaultOpen={!g.collapsed}>
-          {g.fields
-            .filter((f) => (!f.styles || f.styles.includes(params.style)) && (!f.when || f.when(params)))
-            .map((f) => f.kind === 'point'
-              ? <PointField key={f.key} label={f.label} params={params} base={base} set={set} picking={picking} onPicking={onPicking} />
-              : <FieldControl key={f.key} f={f} hint={typeof f.hint === 'function' ? f.hint(params) : f.hint} value={params[f.key]} base={base[f.key]} baseParams={base} set={set} />)}
-        </Section>
-      ))}
+      {GROUPS.filter((g) => !g.styles || g.styles.includes(params.style)).map((g) => {
+        let toggle: { on: boolean; onChange: (v: boolean) => void } | undefined;
+        if (g.styling) {
+          toggle = {
+            on: params.style !== 'photo',
+            onChange: (v) => {
+              if (!v) last.current.style = params.style;
+              set({ style: v ? (last.current.style as Style | undefined) ?? (base.style !== 'photo' ? base.style : 'characters') : 'photo' });
+            },
+          };
+        } else if (g.switch) {
+          const { key, on } = g.switch;
+          toggle = {
+            on: (params[key] as number) > 0,
+            onChange: (v) => {
+              if (!v) last.current[key] = params[key];
+              set({ [key]: v ? (last.current[key] as number) || (base[key] as number) || on : 0 });
+            },
+          };
+        }
+        const open = toggle ? toggle.on : !g.collapsed;
+        return (
+          <Section key={`${g.title}|${resetKey}`} title={g.title} defaultOpen={open} toggle={toggle}>
+            {g.styling && <StylePicker style={params.style} onChange={(st) => set({ style: st })} />}
+            {fieldsOf(g)}
+          </Section>
+        );
+      })}
     </>
   );
 }

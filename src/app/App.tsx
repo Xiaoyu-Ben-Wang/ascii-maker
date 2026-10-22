@@ -3,9 +3,9 @@ import {
 } from 'lucide-react';
 import { Tooltip } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DEFAULTS, PRESETS, frameFor, resolveParams, type Params, type SizeName, type Style } from '../engine/index.ts';
+import { DEFAULTS, PRESETS, frameFor, resolveParams, type Params, type SizeName } from '../engine/index.ts';
 import { Filmstrip, Gallery, type Img } from './Gallery.tsx';
-import { Inspector, StylePicker } from './Inspector.tsx';
+import { Inspector } from './Inspector.tsx';
 import { Renderer, type Rendered } from './renderer.ts';
 import { SAMPLE_SOURCES, loadSample, type SampleSource } from './sample.ts';
 import { Stage } from './Stage.tsx';
@@ -142,7 +142,11 @@ export function App() {
     setPreset((name) => (name === CUSTOM || 'style' in patch ? CUSTOM : name));
   }, []);
   const pickVignette = useCallback((x: number, y: number) => set({ vignetteX: x, vignetteY: y }), [set]);
+  /** Bumped when a whole look is loaded, so the inspector sections re-open or collapse to match it. */
+  const [epoch, setEpoch] = useState(0);
+  const presetEpoch = `${epoch}`;
   const applyPreset = useCallback((name: string) => {
+    setEpoch((n) => n + 1);
     setPreset(name);
     if (PRESETS[name]) setParams(resolveParams(PRESETS[name].params));
   }, []);
@@ -467,16 +471,15 @@ export function App() {
           <div className="flex items-center gap-2 px-4 pt-3">
             <Select label="Preset" value={preset} options={PRESET_OPTIONS} onChange={applyPreset} className="min-w-0 flex-1" />
             <Tip label={preset === CUSTOM ? 'Reset everything to defaults' : 'Undo all changes to this preset'}>
-              <Button size="icon" aria-label="Reset to preset" disabled={!edits} onClick={() => setParams(base)}><RotateCcw className="size-3.5" /></Button>
+              <Button size="icon" aria-label="Reset to preset" disabled={!edits} onClick={() => { setParams(base); setEpoch((n) => n + 1); }}><RotateCcw className="size-3.5" /></Button>
             </Tip>
           </div>
           <p className="truncate px-4 pt-1.5 text-[11px] text-faint" title={PRESETS[preset]?.description}>
             {edits ? <><span className="text-accent">{edits} change{edits > 1 ? 's' : ''}</span> · </> : null}
             {PRESETS[preset]?.description ?? 'Your own settings. Pick a preset to start over.'}
           </p>
-          <StylePicker style={params.style} onChange={(s: Style) => set({ style: s })} />
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            <Inspector params={params} base={base} set={set} picking={picking && !grid} onPicking={(v) => { setPicking(v); if (v) setView('single'); }} />
+            <Inspector params={params} base={base} set={set} resetKey={presetEpoch} picking={picking && !grid} onPicking={(v) => { setPicking(v); if (v) setView('single'); }} />
           </div>
           <div className="flex gap-2 border-t border-line bg-surface p-3 max-md:sticky max-md:bottom-0 max-md:z-20">
             {grid ? (

@@ -65,6 +65,7 @@ A 30 s 1080p clip (900 frames) takes about 32 s for `soft-ascii` and 34 s for `d
 | `dots` | Halftone circles |
 | `lines` | Vertical strokes |
 | `dither` | Palette quantization: Floyd–Steinberg, Atkinson, Jarvis, Stucki, Burkes, Sierra (3 variants), Bayer 2/4/8/16, clustered-dot halftone, interleaved-gradient noise, line patterns, random noise |
+| `photo` | No conversion: the photo with only the adjustments and post effects (e.g. the `scanlines` preset) |
 
 Glyph styles draw over a softened copy of the source (`--bg-blur`, `--bg-opacity`) and only on cells brighter than `--threshold`. On bright photos an absolute threshold can put glyphs everywhere, so `--highlight-mode` changes what counts as bright: `absolute` (default) compares luminance with the threshold, `relative` ranks cells within the image so the threshold is the share left bare (`0.7` = glyphs on the brightest 30%), and `local` compares each cell with its surroundings (`--local-radius`), so flat bright areas like sky stay bare. None of them darken the image. Set `--coverage full` to convert the whole image instead (every cell gets a glyph, threshold ignored); pair it with `--bg-opacity 0` for classic ASCII art, as the `full-ascii` and `full-cross` presets do. Palettes: `auto` (k-means colors picked from the image, count = `--dither-levels`), `source` (per-channel levels), named retro palettes, or a list like `--palette "#000,#f0f,#0ff"`.
 

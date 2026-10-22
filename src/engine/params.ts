@@ -1,6 +1,7 @@
 // Render parameters, defaults and presets shared by the browser editor and the CLI.
 
-export const STYLES = ['characters', 'cross', 'diagonal', 'dots', 'lines', 'dither'] as const;
+/** "photo" leaves the image as is, so only the adjustments and effects (scanlines, bloom, …) apply. */
+export const STYLES = ['characters', 'cross', 'diagonal', 'dots', 'lines', 'dither', 'photo'] as const;
 export type Style = (typeof STYLES)[number];
 
 export const DITHER_ALGOS = [
@@ -184,6 +185,14 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
   'gameboy-dither': {
     description: 'Ordered Bayer dither in the 4-tone Game Boy palette with scanlines',
     params: { style: 'dither', ditherAlgo: 'bayer4', palette: 'gameboy', pixelSize: 4, scanlines: 0.35, bloom: 0.2, vignette: 0.2 },
+  },
+  dither: {
+    description: 'Plain Floyd–Steinberg dither in colors picked from the image, no other effects',
+    params: { style: 'dither', ditherAlgo: 'floyd-steinberg', palette: 'auto', ditherLevels: 6, pixelSize: 3, bloom: 0, vignette: 0, grain: 0 },
+  },
+  scanlines: {
+    description: 'The photo itself with CRT scanlines, no other effects',
+    params: { style: 'photo', scanlines: 0.5, scanlineSpacing: 4, bloom: 0, vignette: 0, grain: 0 },
   },
   matrix: {
     description: 'Green mono ASCII on black with scanlines',

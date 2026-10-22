@@ -1,6 +1,6 @@
 import { Check, ChevronDown, RotateCcw } from 'lucide-react';
 import { Popover as P, Select as S, Slider as Sl, Switch as Sw, Tooltip as T } from 'radix-ui';
-import { memo, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { memo, useEffect, useState, type ComponentProps, type ReactNode } from 'react';
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -204,15 +204,27 @@ export function Popover({ trigger, children, align = 'end' }: { trigger: ReactNo
   );
 }
 
-/** Collapsible inspector section. Uses <details> so it needs no state or animation library. */
-export function Section({ title, children, defaultOpen = true, right }: { title: string; children: ReactNode; defaultOpen?: boolean; right?: ReactNode }) {
-  const ref = useRef<HTMLDetailsElement>(null);
+/**
+ * Collapsible inspector section. With `toggle`, the header carries an on/off switch: turning it on opens the
+ * section and turning it off collapses it. It opens initially if `defaultOpen` (remount it to re-apply that).
+ */
+export function Section({ title, children, defaultOpen = true, right, toggle }: {
+  title: string; children: ReactNode; defaultOpen?: boolean; right?: ReactNode;
+  toggle?: { on: boolean; onChange: (v: boolean) => void };
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <details ref={ref} open={defaultOpen} className="group/sec border-t border-line px-4 py-2">
+    <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group/sec border-t border-line px-4 py-2">
       <summary className="flex cursor-pointer list-none items-center justify-between py-1.5 select-none [&::-webkit-details-marker]:hidden">
-        <span className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">{title}</span>
+        <span className={cx('text-[11px] font-medium tracking-[0.08em] uppercase', toggle && !toggle.on ? 'text-faint/70' : 'text-faint')}>{title}</span>
         <span className="flex items-center gap-2">
           {right}
+          {toggle && (
+            // Keeps a click on the switch from also opening or closing the section.
+            <span className="flex" onClick={(e) => e.preventDefault()}>
+              <Switch label={title} checked={toggle.on} onChange={(v) => { toggle.onChange(v); setOpen(v); }} />
+            </span>
+          )}
           <ChevronDown className="size-3.5 text-faint transition-transform duration-200 ease-[var(--ease-out)] group-open/sec:rotate-180" />
         </span>
       </summary>
