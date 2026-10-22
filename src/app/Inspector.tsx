@@ -80,10 +80,10 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: 'Photo underneath', styles: GLYPH, fields: [
-      { key: 'bgBlur', label: 'Blur', hint: 'Blurs the photo behind the glyphs. 0 keeps it sharp.' },
-      { key: 'bgOpacity', label: 'Visibility', hint: 'How much of the photo shows. 0 leaves only the fill color.' },
-      { key: 'bgColor', label: 'Fill color', hint: 'What the photo fades toward as visibility drops.', kind: 'color' },
+    title: 'Background image', styles: [...GLYPH, 'photo'], fields: [
+      { key: 'bgOpacity', label: 'Opacity', hint: 'How much of the photo shows behind the glyphs. 0 leaves only the fill color.' },
+      { key: 'bgBlur', label: 'Blur', hint: 'Blurs the photo. 0 keeps it sharp.' },
+      { key: 'bgColor', label: 'Fill color', hint: 'What shows through as opacity drops.', kind: 'color' },
     ],
   },
   {

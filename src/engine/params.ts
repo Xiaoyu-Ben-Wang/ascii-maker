@@ -1,6 +1,6 @@
 // Render parameters, defaults and presets shared by the browser editor and the CLI.
 
-/** "photo" leaves the image as is, so only the adjustments and effects (scanlines, bloom, …) apply. */
+/** "photo" draws only the background image (its blur and opacity apply), plus the adjustments and effects. */
 export const STYLES = ['characters', 'cross', 'diagonal', 'dots', 'lines', 'dither', 'photo'] as const;
 export type Style = (typeof STYLES)[number];
 
@@ -76,9 +76,9 @@ export interface Params {
   glyphOpacity: number; // 0..1
 
   // Background under the glyphs
-  bgBlur: number; // px; 0 = sharp source
+  bgBlur: number; // px; 0 = sharp source. Glyph styles and "photo".
   glyphBlur: number; // px softening of the glyph layer only
-  bgOpacity: number; // 0..1 how much of the softened source shows
+  bgOpacity: number; // 0..1 opacity of the background image over bgColor
   bgColor: string;
 
   // Dither style
@@ -207,7 +207,7 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
   },
   scanlines: {
     description: 'The photo itself with CRT scanlines, no other effects',
-    params: { style: 'photo', scanlines: 0.5, scanlineSpacing: 4, bloom: 0, vignette: 0, grain: 0 },
+    params: { style: 'photo', bgBlur: 0, bgOpacity: 1, scanlines: 0.5, scanlineSpacing: 4, bloom: 0, vignette: 0, grain: 0 },
   },
   matrix: {
     description: 'Green mono ASCII on black with scanlines',

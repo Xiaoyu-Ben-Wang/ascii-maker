@@ -95,7 +95,7 @@ export function render(src: RGBAImage, p: Params, opts: RenderOptions): RenderRe
   let glow: FImage | undefined;
   let text: string | undefined;
   if (p.style === 'photo') {
-    out = cloneF(img); // the cached adjusted image must not be modified
+    out = background(img, p, s, (k, make) => memo(`${adjKey}|${k}`, make));
   } else if (p.style === 'dither') {
     out = renderDither(img, p, s, (k, make) => memo(`${adjKey}|${k}`, make));
   } else {
@@ -106,6 +106,21 @@ export function render(src: RGBAImage, p: Params, opts: RenderOptions): RenderRe
 
   postProcess(out, p, s, glow, opts.frame ?? 0);
   return { width: out.width, height: out.height, data: toRGBA(out), text };
+}
+
+/** The photo under the glyphs (or on its own for "photo"): blurred, then faded toward bgColor. A fresh copy, safe to modify. */
+function background(img: FImage, p: Params, s: number, memo: Memo): FImage {
+  return cloneF(memo(`bg:${p.bgBlur * s},${p.bgColor},${p.bgOpacity}`, () => {
+    const b = p.bgBlur > 0 ? blur(img, p.bgBlur * s) : cloneF(img);
+    const [br, bgG, bb] = hexToRgb(p.bgColor);
+    const k = p.bgOpacity;
+    for (let i = 0; i < b.r.length; i++) {
+      b.r[i] = br * (1 - k) + b.r[i] * k;
+      b.g[i] = bgG * (1 - k) + b.g[i] * k;
+      b.b[i] = bb * (1 - k) + b.b[i] * k;
+    }
+    return b;
+  }));
 }
 
 function renderDither(img: FImage, p: Params, s: number, memo: Memo): FImage {
@@ -146,18 +161,7 @@ function cellAverages(img: FImage, cols: number, rows: number, cw: number, ch: n
 function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, memo: Memo) {
   const { width: w, height: h } = img;
 
-  // Background: softened source faded toward bgColor. Cloned because compositing writes into it.
-  const bg = cloneF(memo(`bg:${p.bgBlur * s},${p.bgColor},${p.bgOpacity}`, () => {
-    const b = p.bgBlur > 0 ? blur(img, p.bgBlur * s) : cloneF(img);
-    const [br, bgG, bb] = hexToRgb(p.bgColor);
-    const k = p.bgOpacity;
-    for (let i = 0; i < b.r.length; i++) {
-      b.r[i] = br * (1 - k) + b.r[i] * k;
-      b.g[i] = bgG * (1 - k) + b.g[i] * k;
-      b.b[i] = bb * (1 - k) + b.b[i] * k;
-    }
-    return b;
-  }));
+  const bg = background(img, p, s, memo);
 
   const ch = Math.max(2, p.cellSize * s);
   // Monospace glyphs are ~0.6 as wide as tall; other styles use square cells.
