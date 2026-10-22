@@ -64,7 +64,7 @@ A 30 s 1080p clip (900 frames) takes about 32 s for `soft-ascii` and 34 s for `d
 | `lines` | Vertical strokes |
 | `dither` | Palette quantization: Floyd–Steinberg, Atkinson, Jarvis, Stucki, Burkes, Sierra (3 variants), Bayer 2/4/8/16, clustered-dot halftone, interleaved-gradient noise, line patterns, random noise |
 
-Glyph styles draw over a softened copy of the source (`--bg-blur`, `--bg-opacity`) and only on cells brighter than `--threshold`. Palettes: `auto` (k-means colors picked from the image, count = `--dither-levels`), `source` (per-channel levels), named retro palettes, or a list like `--palette "#000,#f0f,#0ff"`.
+Glyph styles draw over a softened copy of the source (`--bg-blur`, `--bg-opacity`) and only on cells brighter than `--threshold`. Set `--coverage full` to convert the whole image instead (every cell gets a glyph, threshold ignored); pair it with `--bg-opacity 0` for classic ASCII art, as the `full-ascii` and `full-cross` presets do. Palettes: `auto` (k-means colors picked from the image, count = `--dither-levels`), `source` (per-channel levels), named retro palettes, or a list like `--palette "#000,#f0f,#0ff"`.
 
 Blur has three levels: `--bg-blur` (the background under the glyphs), `--glyph-blur` (the glyphs only) and `--blur` (the finished image, any style).
 

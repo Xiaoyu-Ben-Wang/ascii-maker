@@ -60,6 +60,7 @@ export function App() {
   const [view, setView] = useState<'single' | 'grid'>('single');
   const [result, setResult] = useState<Result | null>(null);
   const [fitWidth, setFitWidth] = useState(0);
+  const [zoom, setZoom] = useState(1);
   const [exportSize, setExportSize] = useState<SizeName>('source');
   const [format, setFormat] = useState('image/png');
   const [exporting, setExporting] = useState<string | null>(null);
@@ -219,7 +220,8 @@ export function App() {
 
   // ---- main preview: a quick half-res draft while values change, then the full preview once they settle ----
   const frame = useMemo(() => (active ? frameFor(active.width, active.height, exportSize) : null), [active, exportSize]);
-  const previewWidth = frame && fitWidth ? Math.min(frame.width, Math.round(fitWidth * Math.min(2, devicePixelRatio)), 2200) : 0;
+  // Zoomed in, the preview renders at more of the export resolution so glyphs stay crisp.
+  const previewWidth = frame && fitWidth ? Math.min(frame.width, Math.round(fitWidth * Math.min(2, devicePixelRatio) * zoom), zoom > 1 ? 4096 : 2200) : 0;
   const previewHeight = frame ? Math.max(1, Math.round((previewWidth * frame.height) / frame.width)) : 0;
   const onSize = useCallback((w: number) => setFitWidth(w), []);
 
@@ -384,6 +386,7 @@ export function App() {
               onSamples={addSamples}
               onExample={openExample}
               onSize={onSize}
+              onZoom={setZoom}
             />
           )}
 

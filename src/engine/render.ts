@@ -215,10 +215,12 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
   const mono = hexToRgb(p.monoColor);
   const rand = mulberry32(p.seed);
   const chars = [...p.charset];
-  const charStart = chars[0] === ' ' && chars.length > 1 ? 1 : 0;
+  const full = p.coverage === 'full';
+  // In full coverage the whole charset (leading space included) spans the luminance range.
+  const charStart = !full && chars[0] === ' ' && chars.length > 1 ? 1 : 0;
   const textRows: string[] = [];
-  const th = p.threshold;
-  const fadeEnd = th + p.thresholdSoftness * (1 - th);
+  const th = full ? 0 : p.threshold;
+  const fadeEnd = full ? 0 : th + p.thresholdSoftness * (1 - th);
 
   for (let cy = 0; cy < rows; cy++) {
     let line = '';

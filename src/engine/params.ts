@@ -16,6 +16,9 @@ export const DIAGONAL_MODES = ['edge', 'forward', 'backward', 'mixed'] as const;
 export type DiagonalMode = (typeof DIAGONAL_MODES)[number];
 
 export const COLOR_MODES = ['source', 'mono'] as const;
+/** "highlights" draws glyphs only where the image is bright; "full" converts every cell, like classic ASCII art. */
+export const COVERAGES = ['highlights', 'full'] as const;
+export type Coverage = (typeof COVERAGES)[number];
 export type ColorMode = (typeof COLOR_MODES)[number];
 
 export interface Params {
@@ -33,6 +36,7 @@ export interface Params {
 
   // Glyph grid
   cellSize: number;
+  coverage: Coverage;
   charset: string; // dark → bright, used by "characters"
   font: string;
   threshold: number; // 0..1 luminance below which a cell gets no glyph
@@ -82,6 +86,7 @@ export const DEFAULTS: Params = {
 
   unitWidth: 1920,
   cellSize: 14,
+  coverage: 'highlights',
   charset: ' .:-=+xX0S8#@',
   font: 'Consolas, "Cascadia Mono", "DejaVu Sans Mono", "Courier New", monospace',
   threshold: 0.3,
@@ -137,6 +142,18 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
   dots: {
     description: 'Halftone dots that scale with brightness',
     params: { style: 'dots', cellSize: 12, threshold: 0.12, bgBlur: 10, bgOpacity: 0.35, glyphTint: 0.2, bloom: 0.3 },
+  },
+  'full-ascii': {
+    description: 'Classic ASCII art: every cell becomes a character, in the source colors on black',
+    params: {
+      style: 'characters', coverage: 'full', cellSize: 10, bgOpacity: 0, glyphTint: 0, glyphBoost: 1.15, bloom: 0.25, vignette: 0.2, grain: 0,
+    },
+  },
+  'full-cross': {
+    description: 'Whole image rebuilt from "+" and "×" marks sized by brightness',
+    params: {
+      style: 'cross', coverage: 'full', cellSize: 10, strokeWidth: 0.12, bgOpacity: 0, glyphTint: 0.1, glyphBoost: 1.3, bloom: 0.3, vignette: 0.2, grain: 0,
+    },
   },
   'dither-scanline': {
     description: 'Chunky Floyd–Steinberg dither with CRT scanlines and bloom',

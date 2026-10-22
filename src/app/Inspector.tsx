@@ -1,11 +1,13 @@
 import { memo } from 'react';
 import {
-  COLOR_MODES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, PALETTE_NAMES, RANGES, STYLES, type Params, type Style,
+  COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, PALETTE_NAMES, RANGES, STYLES, type Params, type Style,
 } from '../engine/index.ts';
 import { ColorField, Row, Section, Select, SliderField, Switch, TextField, cx } from './ui.tsx';
 
 type Kind = 'range' | 'select' | 'check' | 'color' | 'text';
-interface Field { key: keyof Params; label: string; kind?: Kind; options?: readonly string[]; styles?: readonly Style[]; when?: (p: Params) => boolean }
+interface Field { key: keyof Params; label: string; kind?: Kind; options?: readonly string[]; styles?: readonly Style[]; when?: (p: Params) => boolean;
+  /** Extra params to change along with this field. */
+  also?: (v: unknown, base: Params) => Partial<Params> }
 interface Group { title: string; styles?: readonly Style[]; fields: Field[]; collapsed?: boolean }
 
 const GLYPH: Style[] = ['characters', 'cross', 'diagonal', 'dots', 'lines'];
@@ -14,13 +16,18 @@ const SHAPES: Style[] = ['cross', 'diagonal', 'dots', 'lines'];
 const GROUPS: Group[] = [
   {
     title: 'Glyphs', styles: GLYPH, fields: [
+      {
+        key: 'coverage', label: 'Coverage', kind: 'select', options: COVERAGES,
+        // Full coverage hides the photo underneath so only glyphs remain; going back restores it.
+        also: (v, base) => ({ bgOpacity: v === 'full' ? 0 : base.coverage === 'full' ? DEFAULTS.bgOpacity : base.bgOpacity }),
+      },
       { key: 'cellSize', label: 'Cell size' },
       { key: 'charset', label: 'Characters', kind: 'text', styles: ['characters'] },
       { key: 'diagonalMode', label: 'Direction', kind: 'select', options: DIAGONAL_MODES, styles: ['diagonal'] },
       { key: 'strokeWidth', label: 'Stroke width', styles: ['cross', 'diagonal', 'lines'] },
       { key: 'sizeByBrightness', label: 'Scale by light', kind: 'check', styles: SHAPES },
-      { key: 'threshold', label: 'Threshold' },
-      { key: 'thresholdSoftness', label: 'Fade-in' },
+      { key: 'threshold', label: 'Threshold', when: (p) => p.coverage !== 'full' },
+      { key: 'thresholdSoftness', label: 'Fade-in', when: (p) => p.coverage !== 'full' },
       { key: 'colorMode', label: 'Color', kind: 'select', options: COLOR_MODES },
       { key: 'monoColor', label: 'Mono color', kind: 'color', when: (p) => p.colorMode === 'mono' },
       { key: 'glyphTint', label: 'Whiten' },
@@ -86,9 +93,9 @@ const STYLE_GLYPH: Record<Style, string> = {
 
 type Set = (patch: Partial<Params>) => void;
 
-const FieldControl = memo(function FieldControl({ f, value, set, base }: { f: Field; value: Params[keyof Params]; set: Set; base: Params[keyof Params] }) {
+const FieldControl = memo(function FieldControl({ f, value, set, base, baseParams }: { f: Field; value: Params[keyof Params]; set: Set; base: Params[keyof Params]; baseParams: Params }) {
   const kind: Kind = f.kind ?? (typeof DEFAULTS[f.key] === 'boolean' ? 'check' : 'range');
-  const put = (v: unknown) => set({ [f.key]: v } as Partial<Params>);
+  const put = (v: unknown) => set({ ...f.also?.(v, baseParams), [f.key]: v } as Partial<Params>);
   if (kind === 'range') {
     const [min, max, step] = RANGES[f.key] ?? [0, 1, 0.01];
     return <SliderField label={f.label} value={value as number} min={min} max={max} step={step} onChange={put} onReset={() => put(base)} />;
@@ -133,7 +140,7 @@ export function Inspector({ params, base, set }: { params: Params; base: Params;
         <Section key={g.title} title={g.title} defaultOpen={!g.collapsed}>
           {g.fields
             .filter((f) => (!f.styles || f.styles.includes(params.style)) && (!f.when || f.when(params)))
-            .map((f) => <FieldControl key={f.key} f={f} value={params[f.key]} base={base[f.key]} set={set} />)}
+            .map((f) => <FieldControl key={f.key} f={f} value={params[f.key]} base={base[f.key]} baseParams={base} set={set} />)}
         </Section>
       ))}
     </>

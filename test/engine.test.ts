@@ -177,3 +177,12 @@ test('CLI converts a video, keeping frame count, size and audio', (t) => {
   assert.deepEqual([v.width, v.height, Number(v.nb_read_frames)], [320, 180, 24]);
   assert.ok(probe.streams.some((s: { codec_type: string }) => s.codec_type === 'audio'), 'audio track kept');
 });
+
+test('full coverage puts a glyph in every cell, including dark ones', () => {
+  const src = gradient(200, 100);
+  for (let i = 0; i < src.data.length; i += 4) src.data[i + 1] = src.data[i + 2] = src.data[i];
+  const p = resolveParams({ style: 'characters', coverage: 'full', charset: '.:#', threshold: 0.9 });
+  const rows = render(src, p, { createCanvas: factory }).text!.split('\n');
+  assert.ok(rows.every((row) => row.length > 0 && !/ /.test(row)), 'no blank cells');
+  assert.ok(rows[0].startsWith('.') && rows[0].endsWith('#'), 'dark to bright across the ramp');
+});
