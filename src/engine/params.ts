@@ -71,6 +71,8 @@ export interface Params {
   scanlines: number; // 0..1
   scanlineSpacing: number; // px
   vignette: number; // 0..1
+  vignetteX: number; // 0..1 vignette center, fraction of width
+  vignetteY: number; // 0..1 fraction of height
   chromatic: number; // px
   grain: number; // 0..1
   seed: number;
@@ -117,7 +119,9 @@ export const DEFAULTS: Params = {
   bloomThreshold: 0.4,
   scanlines: 0,
   scanlineSpacing: 4,
-  vignette: 0.35,
+  vignette: 0.2,
+  vignetteX: 0.5,
+  vignetteY: 0.5,
   chromatic: 0,
   grain: 0.04,
   seed: 1,
@@ -126,7 +130,7 @@ export const DEFAULTS: Params = {
 export const PRESETS: Record<string, { description: string; params: Partial<Params> }> = {
   'soft-ascii': {
     description: 'Glowing ASCII over a softened copy of the photo (the after.mp4 look)',
-    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 6, bgOpacity: 0.7, bloom: 0.6, vignette: 0.4 },
+    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 3, bgOpacity: 0.85, bloom: 0.6, vignette: 0.2 },
   },
   cross: {
     description: 'Cross-stitch "+" and "×" marks that grow with brightness',
@@ -135,42 +139,42 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
   diagonal: {
     description: 'Hatched slashes that follow the image edges, warm film look',
     params: {
-      style: 'diagonal', cellSize: 12, threshold: 0.25, strokeWidth: 0.09, diagonalMode: 'edge', bgBlur: 8,
-      bgOpacity: 0.65, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.4, vignette: 0.45, grain: 0.06,
+      style: 'diagonal', cellSize: 12, threshold: 0.25, strokeWidth: 0.09, diagonalMode: 'edge', bgBlur: 5,
+      bgOpacity: 0.65, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.4, vignette: 0.25, grain: 0.06,
     },
   },
   dots: {
     description: 'Halftone dots that scale with brightness',
-    params: { style: 'dots', cellSize: 12, threshold: 0.12, bgBlur: 10, bgOpacity: 0.35, glyphTint: 0.2, bloom: 0.3 },
+    params: { style: 'dots', cellSize: 12, threshold: 0.12, bgBlur: 5, bgOpacity: 0.35, glyphTint: 0.2, bloom: 0.3 },
   },
   'full-ascii': {
     description: 'Classic ASCII art: every cell becomes a character, in the source colors on black',
     params: {
-      style: 'characters', coverage: 'full', cellSize: 10, bgOpacity: 0, glyphTint: 0, glyphBoost: 1.15, bloom: 0.25, vignette: 0.2, grain: 0,
+      style: 'characters', coverage: 'full', cellSize: 10, bgOpacity: 0, glyphTint: 0, glyphBoost: 1.15, bloom: 0.25, vignette: 0.15, grain: 0,
     },
   },
   'full-cross': {
     description: 'Whole image rebuilt from "+" and "×" marks sized by brightness',
     params: {
-      style: 'cross', coverage: 'full', cellSize: 10, strokeWidth: 0.12, bgOpacity: 0, glyphTint: 0.1, glyphBoost: 1.3, bloom: 0.3, vignette: 0.2, grain: 0,
+      style: 'cross', coverage: 'full', cellSize: 10, strokeWidth: 0.12, bgOpacity: 0, glyphTint: 0.1, glyphBoost: 1.3, bloom: 0.3, vignette: 0.15, grain: 0,
     },
   },
   'dither-scanline': {
     description: 'Chunky Floyd–Steinberg dither with CRT scanlines and bloom',
     params: {
       style: 'dither', ditherAlgo: 'floyd-steinberg', palette: 'auto', ditherLevels: 4, pixelSize: 4, scanlines: 0.55,
-      scanlineSpacing: 4, bloom: 0.45, bloomThreshold: 0.55, vignette: 0.45, chromatic: 1.5, grain: 0.05,
+      scanlineSpacing: 4, bloom: 0.45, bloomThreshold: 0.55, vignette: 0.25, chromatic: 1.5, grain: 0.05,
     },
   },
   'gameboy-dither': {
     description: 'Ordered Bayer dither in the 4-tone Game Boy palette with scanlines',
-    params: { style: 'dither', ditherAlgo: 'bayer4', palette: 'gameboy', pixelSize: 4, scanlines: 0.35, bloom: 0.2, vignette: 0.3 },
+    params: { style: 'dither', ditherAlgo: 'bayer4', palette: 'gameboy', pixelSize: 4, scanlines: 0.35, bloom: 0.2, vignette: 0.2 },
   },
   matrix: {
     description: 'Green mono ASCII on black with scanlines',
     params: {
       style: 'characters', colorMode: 'mono', monoColor: '#33ff66', glyphTint: 0, glyphBoost: 1, charset: ' .:01', bgOpacity: 0.12, bgBlur: 12,
-      threshold: 0.15, scanlines: 0.4, scanlineSpacing: 3, bloom: 0.7, vignette: 0.5,
+      threshold: 0.15, scanlines: 0.4, scanlineSpacing: 3, bloom: 0.7, vignette: 0.3,
     },
   },
 };
@@ -206,6 +210,8 @@ export const RANGES: Partial<Record<keyof Params, [min: number, max: number, ste
   scanlines: [0, 1, 0.01],
   scanlineSpacing: [2, 16, 0.5],
   vignette: [0, 1, 0.01],
+  vignetteX: [0, 1, 0.01],
+  vignetteY: [0, 1, 0.01],
   chromatic: [0, 12, 0.1],
   grain: [0, 0.5, 0.01],
   seed: [0, 9999, 1],

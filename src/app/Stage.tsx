@@ -18,6 +18,8 @@ interface Props {
   onSize: (cssWidth: number, cssHeight: number) => void;
   /** Called with the zoom level the preview should be rendered for (1, 2, 4 or 8). */
   onZoom?: (renderZoom: number) => void;
+  /** When set, clicking or dragging on the image picks a point (0..1 of width and height), shown with a marker. */
+  pick?: { x: number; y: number; onPick: (x: number, y: number) => void; onDone: () => void } | null;
   children?: ReactNode;
 }
 
@@ -27,7 +29,7 @@ const NO_ZOOM: View = { z: 1, x: 0, y: 0 };
 /** Power-of-two zoom bucket, so renders only redo at 2×, 4×, 8× rather than on every pinch step. */
 export const renderZoom = (z: number) => Math.min(MAX_ZOOM, 2 ** Math.ceil(Math.log2(Math.max(1, z) - 0.05)));
 
-export function Stage({ original, frame, result, split, onSplit, holdOriginal, onOpen, onSamples, onExample, onSize, onZoom, children }: Props) {
+export function Stage({ original, frame, result, split, onSplit, holdOriginal, onOpen, onSamples, onExample, onSize, onZoom, pick, children }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const origRef = useRef<HTMLCanvasElement>(null);
   const resRef = useRef<HTMLCanvasElement>(null);
@@ -75,7 +77,7 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
       const v = viewRef.current;
       apply(v.z > 1 ? NO_ZOOM : zoomAt(v, 2.5, cx, cy));
     };
-    const onSplitHandle = (t: EventTarget | null) => t instanceof Element && !!t.closest('[data-split-handle]');
+    const onSplitHandle = (t: EventTarget | null) => t instanceof Element && !!t.closest('[data-split-handle],[data-pick-layer]');
 
     let pinch: { d: number; mx: number; my: number; v: View } | null = null;
     let pan: { x: number; y: number; v: View } | null = null;
@@ -218,6 +220,22 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
     target.addEventListener('pointerup', up);
   };
 
+  const startPick = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pick || e.button !== 0) return;
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    // The rect already includes the zoom transform.
+    const at = (ev: { clientX: number; clientY: number }) => {
+      const r = target.getBoundingClientRect();
+      const c = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 100) / 100;
+      pick.onPick(c((ev.clientX - r.left) / r.width), c((ev.clientY - r.top) / r.height));
+    };
+    at(e);
+    const up = () => { target.removeEventListener('pointermove', at); target.removeEventListener('pointerup', up); pick.onDone(); };
+    target.addEventListener('pointermove', at);
+    target.addEventListener('pointerup', up);
+  };
+
   return (
     <div
       ref={stageRef}
@@ -232,6 +250,12 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
         >
           <canvas ref={origRef} className="absolute inset-0 size-full" />
           <canvas ref={resRef} className="absolute inset-0 size-full" style={{ clipPath: clip }} />
+          {pick && (
+            <div data-pick-layer className="absolute inset-0 z-20 cursor-crosshair touch-none" onPointerDown={startPick}>
+              <div className="pointer-events-none absolute size-5 -translate-1/2 rounded-full border-2 border-accent shadow-[0_0_0_1px_rgb(0_0_0/0.6),0_0_12px_rgb(157_251_208/0.6)]"
+                style={{ left: `${pick.x * 100}%`, top: `${pick.y * 100}%`, scale: `${1 / view.z}` }} />
+            </div>
+          )}
           {split !== null && !holdOriginal && (
             <div data-split-handle className="absolute inset-y-0 z-10 w-8 -translate-x-1/2 cursor-ew-resize touch-none" style={{ left: `${split * 100}%`, scale: `${1 / view.z} 1` }} onPointerDown={startDrag}>
               <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/80 shadow-[0_0_12px_rgb(255_255_255/0.6)]" />

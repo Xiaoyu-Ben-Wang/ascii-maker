@@ -376,7 +376,7 @@ function postProcess(img: FImage, p: Params, s: number, glowSource: FImage | und
   // Scanlines, vignette, grain and the final clamp in one pass.
   const sp = Math.max(1.5, p.scanlineSpacing * s);
   const lift = 1 + p.scanlines * 0.3;
-  const vig = p.vignette > 0 ? vignetteMask(w, h, p.vignette) : null;
+  const vig = p.vignette > 0 ? vignetteMask(w, h, p.vignette, p.vignetteX, p.vignetteY) : null;
   const rand = mulberry32(p.seed * 7919 + 17 + frame * 104729);
   const grain = p.grain;
   for (let y = 0; y < h; y++) {
@@ -395,19 +395,22 @@ function postProcess(img: FImage, p: Params, s: number, glowSource: FImage | und
   }
 }
 
-let vigCache: { w: number; h: number; v: number; mask: Float32Array } | null = null;
-function vignetteMask(w: number, h: number, v: number): Float32Array {
-  if (vigCache && vigCache.w === w && vigCache.h === h && vigCache.v === v) return vigCache.mask;
+let vigCache: { w: number; h: number; v: number; vx: number; vy: number; mask: Float32Array } | null = null;
+// Distances are scaled by the half-size rather than the distance to each edge, so an off-center point darkens the
+// far side more than the near one.
+function vignetteMask(w: number, h: number, v: number, vx: number, vy: number): Float32Array {
+  const c = vigCache;
+  if (c && c.w === w && c.h === h && c.v === v && c.vx === vx && c.vy === vy) return c.mask;
   const mask = new Float32Array(w * h);
-  const cx = w / 2, cy = h / 2;
+  const cx = w * vx, cy = h * vy, hw = w / 2, hh = h / 2;
   for (let y = 0; y < h; y++) {
-    const dy = (y - cy) / cy;
+    const dy = (y - cy) / hh;
     for (let x = 0; x < w; x++) {
-      const dx = (x - cx) / cx;
+      const dx = (x - cx) / hw;
       mask[y * w + x] = 1 - v * smoothstep(0.35, 1, Math.sqrt((dx * dx + dy * dy) / 2));
     }
   }
-  vigCache = { w, h, v, mask };
+  vigCache = { w, h, v, vx, vy, mask };
   return mask;
 }
 

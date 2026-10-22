@@ -1,10 +1,11 @@
+import { Crosshair } from 'lucide-react';
 import { memo } from 'react';
 import {
   COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, PALETTE_NAMES, RANGES, STYLES, type Params, type Style,
 } from '../engine/index.ts';
-import { ColorField, Row, Section, Select, SliderField, Switch, TextField, cx } from './ui.tsx';
+import { Button, ColorField, Row, Section, Select, SliderField, Switch, TextField, cx } from './ui.tsx';
 
-type Kind = 'range' | 'select' | 'check' | 'color' | 'text';
+type Kind = 'range' | 'select' | 'check' | 'color' | 'text' | 'point';
 interface Field { key: keyof Params; label: string; kind?: Kind; options?: readonly string[]; styles?: readonly Style[]; when?: (p: Params) => boolean;
   /** Extra params to change along with this field. */
   also?: (v: unknown, base: Params) => Partial<Params> }
@@ -65,6 +66,7 @@ const GROUPS: Group[] = [
       { key: 'scanlines', label: 'Scanlines' },
       { key: 'scanlineSpacing', label: 'Line spacing', when: (p) => p.scanlines > 0 },
       { key: 'vignette', label: 'Vignette' },
+      { key: 'vignetteX', label: 'Center', kind: 'point', when: (p) => p.vignette > 0 },
       { key: 'chromatic', label: 'Chromatic' },
       { key: 'grain', label: 'Grain' },
     ],
@@ -133,14 +135,38 @@ export function StylePicker({ style, onChange }: { style: Style; onChange: (s: S
   );
 }
 
-export function Inspector({ params, base, set }: { params: Params; base: Params; set: Set }) {
+/** Vignette center: picked by clicking the preview, shown as percentages. */
+function PointField({ label, params, base, set, picking, onPicking }: { label: string; params: Params; base: Params; set: Set; picking: boolean; onPicking: (v: boolean) => void }) {
+  const moved = params.vignetteX !== base.vignetteX || params.vignetteY !== base.vignetteY;
+  return (
+    <Row label={label}>
+      <div className="flex items-center gap-1">
+        <button
+          className="rounded px-1 font-mono text-[11px] text-muted tabular-nums hover:text-fg disabled:hover:text-muted"
+          title="Reset to preset" disabled={!moved}
+          onClick={() => set({ vignetteX: base.vignetteX, vignetteY: base.vignetteY })}
+        >
+          {Math.round(params.vignetteX * 100)}, {Math.round(params.vignetteY * 100)}
+        </button>
+        <Button size="sm" variant="solid" aria-pressed={picking} onClick={() => onPicking(!picking)}
+          className={cx(picking && 'border-accent/50 text-accent')}>
+          <Crosshair className="size-3.5" />{picking ? 'Click image' : 'Pick'}
+        </Button>
+      </div>
+    </Row>
+  );
+}
+
+export function Inspector({ params, base, set, picking, onPicking }: { params: Params; base: Params; set: Set; picking: boolean; onPicking: (v: boolean) => void }) {
   return (
     <>
       {GROUPS.filter((g) => !g.styles || g.styles.includes(params.style)).map((g) => (
         <Section key={g.title} title={g.title} defaultOpen={!g.collapsed}>
           {g.fields
             .filter((f) => (!f.styles || f.styles.includes(params.style)) && (!f.when || f.when(params)))
-            .map((f) => <FieldControl key={f.key} f={f} value={params[f.key]} base={base[f.key]} baseParams={base} set={set} />)}
+            .map((f) => f.kind === 'point'
+              ? <PointField key={f.key} label={f.label} params={params} base={base} set={set} picking={picking} onPicking={onPicking} />
+              : <FieldControl key={f.key} f={f} value={params[f.key]} base={base[f.key]} baseParams={base} set={set} />)}
         </Section>
       ))}
     </>

@@ -65,6 +65,7 @@ export function App() {
   const [format, setFormat] = useState('image/png');
   const [exporting, setExporting] = useState<string | null>(null);
   const [split, setSplit] = useState<number | null>(null);
+  const [picking, setPicking] = useState(false);
   const [hold, setHold] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
@@ -140,6 +141,7 @@ export function App() {
     setParams((p) => ({ ...p, ...patch }));
     setPreset((name) => (name === CUSTOM || 'style' in patch ? CUSTOM : name));
   }, []);
+  const pickVignette = useCallback((x: number, y: number) => set({ vignetteX: x, vignetteY: y }), [set]);
   const applyPreset = useCallback((name: string) => {
     setPreset(name);
     if (PRESETS[name]) setParams(resolveParams(PRESETS[name].params));
@@ -336,6 +338,7 @@ export function App() {
         (document.activeElement as HTMLElement | null)?.blur();
         setTimeout(() => (e.shiftKey ? exportAll() : doExport()), 0);
       }
+      else if (e.key === 'Escape') setPicking(false);
       else if (mod || typing(e.target) || (e.target as HTMLElement)?.closest?.('[role=slider],[role=combobox],[role=listbox]')) return;
       else if (key === 'b') setHold(true);
       else if (key === 'g') setView((v) => (v === 'grid' ? 'single' : 'grid'));
@@ -387,6 +390,7 @@ export function App() {
               onExample={openExample}
               onSize={onSize}
               onZoom={setZoom}
+              pick={picking && active ? { x: params.vignetteX, y: params.vignetteY, onPick: pickVignette, onDone: () => setPicking(false) } : null}
             />
           )}
 
@@ -467,7 +471,7 @@ export function App() {
           </div>
           <StylePicker style={params.style} onChange={(s: Style) => set({ style: s })} />
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            <Inspector params={params} base={base} set={set} />
+            <Inspector params={params} base={base} set={set} picking={picking && !grid} onPicking={(v) => { setPicking(v); if (v) setView('single'); }} />
           </div>
           <div className="flex gap-2 border-t border-line bg-surface p-3 max-md:sticky max-md:bottom-0 max-md:z-20">
             {grid ? (
