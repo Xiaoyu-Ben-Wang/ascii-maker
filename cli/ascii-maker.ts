@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-  COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, PALETTE_NAMES, PRESETS, RANGES, SIZE_NAMES, STYLES, frameFor, render,
+  COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, PRESETS, RANGES, SIZE_NAMES, STYLES, frameFor, render,
   resolveParams, type Params, type SizeName,
 } from '../src/engine/index.ts';
 import { hexToRgb } from '../src/engine/pixels.ts';
@@ -117,6 +117,7 @@ function validate(p: Params) {
   oneOf('diagonal mode', p.diagonalMode, DIAGONAL_MODES);
   oneOf('color mode', p.colorMode, COLOR_MODES);
   oneOf('coverage', p.coverage, COVERAGES);
+  oneOf('highlight mode', p.highlightMode, HIGHLIGHT_MODES);
   if (!PALETTE_NAMES.includes(p.palette)) {
     const hexes = p.palette.split(',').map((h) => h.trim()).filter(Boolean);
     try {

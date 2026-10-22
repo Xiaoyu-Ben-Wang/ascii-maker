@@ -165,6 +165,8 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
   const cells = memo(`cells:${cols}x${rows},${cw},${ch}`, () => cellAverages(img, cols, rows, cw, ch));
   const lum = new Float32Array(cols * rows);
   for (let i = 0; i < lum.length; i++) lum[i] = luma(cells.r[i], cells.g[i], cells.b[i]);
+  // Brightness as the threshold and glyph choice see it; the glyph colors still come from the cells.
+  const bright = highlightLevels(lum, cols, rows, p, (p.localRadius * s) / ch);
   // Smoothed copy for edge direction, so slashes follow contours rather than fine texture.
   let edgeLum: Float32Array | undefined;
   if (p.style === 'diagonal' && p.diagonalMode === 'edge') {
@@ -226,7 +228,7 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
     let line = '';
     for (let cx = 0; cx < cols; cx++) {
       const i = cy * cols + cx;
-      const l = lum[i];
+      const l = bright[i];
       const jitter = rand();
       const a = smoothstep(th, fadeEnd, l) * p.glyphOpacity;
       // t: 0 at the threshold, 1 at full white; drives glyph choice and size.
@@ -317,6 +319,36 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
   }
 
   return { out, glow, text: p.style === 'characters' ? textRows.join('\n') : undefined };
+}
+
+/**
+ * Per-cell brightness compared against the threshold. "relative" replaces luminance with its rank among the cells
+ * (the share of cells at or below it), so a bright photo only lights up its brightest part. "local" measures how
+ * much brighter a cell is than its surroundings (a blur `radius` cells wide), so even, bright areas stay bare while
+ * spots that stand out still get glyphs.
+ */
+function highlightLevels(lum: Float32Array, cols: number, rows: number, p: Params, radius: number): Float32Array {
+  if (p.highlightMode === 'relative') {
+    const sorted = lum.slice().sort();
+    const n = sorted.length;
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      let lo = 0, hi = n; // first index with sorted[k] > lum[i]
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid] <= lum[i]) lo = mid + 1; else hi = mid; }
+      out[i] = lo / n;
+    }
+    return out;
+  }
+  if (p.highlightMode === 'local') {
+    const f = createF(cols, rows);
+    f.r.set(lum);
+    const m = blur(f, Math.max(1, radius)).r;
+    const out = new Float32Array(lum.length);
+    // A quarter of the absolute level keeps big bright shapes faintly present; the rest is contrast with the area.
+    for (let i = 0; i < lum.length; i++) out[i] = clamp01(0.25 * lum[i] + 2.5 * (lum[i] - m[i]));
+    return out;
+  }
+  return lum;
 }
 
 function postProcess(img: FImage, p: Params, s: number, glowSource: FImage | undefined, frame: number) {

@@ -15,8 +15,8 @@ import { zip } from './zip.ts';
 const STORE_KEY = 'ascii-maker:v2';
 const CUSTOM = 'custom';
 const PRESET_OPTIONS = [
-  ...Object.entries(PRESETS).map(([k, p]) => ({ value: k, label: k })),
-  { value: CUSTOM, label: 'custom' },
+  ...Object.entries(PRESETS).map(([k, p]) => ({ value: k, label: k, hint: p.description })),
+  { value: CUSTOM, label: 'custom', hint: 'Your own settings' },
 ];
 const FORMATS = [
   { value: 'image/png', label: 'PNG' },
@@ -147,6 +147,7 @@ export function App() {
     if (PRESETS[name]) setParams(resolveParams(PRESETS[name].params));
   }, []);
   const base = useMemo(() => resolveParams(PRESETS[preset]?.params ?? {}), [preset]);
+  const edits = useMemo(() => (Object.keys(DEFAULTS) as (keyof Params)[]).filter((k) => params[k] !== base[k]).length, [params, base]);
 
   // ---- image set ----
   const addBitmap = useCallback(async (bitmap: ImageBitmap, name: string) => {
@@ -465,10 +466,14 @@ export function App() {
         <aside className="flex min-h-0 min-w-0 flex-col border-line bg-surface max-md:border-t md:border-l">
           <div className="flex items-center gap-2 px-4 pt-3">
             <Select label="Preset" value={preset} options={PRESET_OPTIONS} onChange={applyPreset} className="min-w-0 flex-1" />
-            <Tip label="Reset to preset">
-              <Button size="icon" aria-label="Reset to preset" onClick={() => setParams(base)}><RotateCcw className="size-3.5" /></Button>
+            <Tip label={preset === CUSTOM ? 'Reset everything to defaults' : 'Undo all changes to this preset'}>
+              <Button size="icon" aria-label="Reset to preset" disabled={!edits} onClick={() => setParams(base)}><RotateCcw className="size-3.5" /></Button>
             </Tip>
           </div>
+          <p className="truncate px-4 pt-1.5 text-[11px] text-faint" title={PRESETS[preset]?.description}>
+            {edits ? <><span className="text-accent">{edits} change{edits > 1 ? 's' : ''}</span> · </> : null}
+            {PRESETS[preset]?.description ?? 'Your own settings. Pick a preset to start over.'}
+          </p>
           <StylePicker style={params.style} onChange={(s: Style) => set({ style: s })} />
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <Inspector params={params} base={base} set={set} picking={picking && !grid} onPicking={(v) => { setPicking(v); if (v) setView('single'); }} />

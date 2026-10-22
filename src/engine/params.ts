@@ -19,6 +19,13 @@ export const COLOR_MODES = ['source', 'mono'] as const;
 /** "highlights" draws glyphs only where the image is bright; "full" converts every cell, like classic ASCII art. */
 export const COVERAGES = ['highlights', 'full'] as const;
 export type Coverage = (typeof COVERAGES)[number];
+/**
+ * How a cell's brightness is measured against the threshold. "absolute" uses its luminance as is; "relative" uses its
+ * rank among the image's cells, so the threshold is the share of cells left bare; "local" compares it with its
+ * surroundings, so only spots brighter than their neighborhood count as highlights.
+ */
+export const HIGHLIGHT_MODES = ['absolute', 'relative', 'local'] as const;
+export type HighlightMode = (typeof HIGHLIGHT_MODES)[number];
 export type ColorMode = (typeof COLOR_MODES)[number];
 
 export interface Params {
@@ -39,8 +46,10 @@ export interface Params {
   coverage: Coverage;
   charset: string; // dark → bright, used by "characters"
   font: string;
+  highlightMode: HighlightMode;
   threshold: number; // 0..1 luminance below which a cell gets no glyph
   thresholdSoftness: number; // 0..1 fade-in range above the threshold
+  localRadius: number; // px, neighborhood size for the "local" highlight mode
   sizeByBrightness: boolean; // scale cross/dots/diagonal/lines with luminance
   strokeWidth: number; // fraction of cell size, for cross/diagonal/lines
   diagonalMode: DiagonalMode;
@@ -91,8 +100,10 @@ export const DEFAULTS: Params = {
   coverage: 'highlights',
   charset: ' .:-=+xX0S8#@',
   font: 'Consolas, "Cascadia Mono", "DejaVu Sans Mono", "Courier New", monospace',
+  highlightMode: 'absolute',
   threshold: 0.3,
   thresholdSoftness: 0.25,
+  localRadius: 120,
   sizeByBrightness: true,
   strokeWidth: 0.1,
   diagonalMode: 'edge',
@@ -129,8 +140,12 @@ export const DEFAULTS: Params = {
 
 export const PRESETS: Record<string, { description: string; params: Partial<Params> }> = {
   'soft-ascii': {
-    description: 'Glowing ASCII over a softened copy of the photo (the after.mp4 look)',
+    description: 'Glowing ASCII on the highlights, over a softened copy of the photo',
     params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 3, bgOpacity: 0.85, bloom: 0.6, vignette: 0.2 },
+  },
+  'sharp-ascii': {
+    description: 'Glowing ASCII on the highlights of the unblurred photo',
+    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 0, bgOpacity: 0.85, bloom: 0.6, vignette: 0.2 },
   },
   cross: {
     description: 'Cross-stitch "+" and "×" marks that grow with brightness',
@@ -193,6 +208,7 @@ export const RANGES: Partial<Record<keyof Params, [min: number, max: number, ste
   cellSize: [4, 64, 1],
   threshold: [0, 1, 0.01],
   thresholdSoftness: [0, 1, 0.01],
+  localRadius: [10, 600, 1],
   strokeWidth: [0.02, 0.4, 0.01],
   glyphTint: [0, 1, 0.01],
   glyphBoost: [0.2, 3, 0.01],

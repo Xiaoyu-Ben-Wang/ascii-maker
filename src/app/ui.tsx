@@ -1,4 +1,4 @@
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, RotateCcw } from 'lucide-react';
 import { Popover as P, Select as S, Slider as Sl, Switch as Sw, Tooltip as T } from 'radix-ui';
 import { memo, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 
@@ -40,17 +40,42 @@ export const Kbd = ({ children }: { children: ReactNode }) => (
   <kbd className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px] text-muted">{children}</kbd>
 );
 
+/** Field label; hovering it explains the field, and it turns accent-colored once the value differs from the preset. */
+export function Label({ text, hint, modified, onReset }: { text: string; hint?: string; modified?: boolean; onReset?: () => void }) {
+  const label = (
+    <span
+      onDoubleClick={onReset}
+      className={cx('shrink-0 cursor-default text-[12px] select-none', modified ? 'text-fg' : 'text-muted', hint && 'decoration-white/20 decoration-dotted underline-offset-[3px] hover:underline')}
+    >
+      {text}{modified && <span aria-label="changed" className="ml-1.5 inline-block size-1 translate-y-[-2px] rounded-full bg-accent" />}
+    </span>
+  );
+  return hint ? <Tip side="left" label={<span className="block max-w-56 leading-snug">{hint}</span>}>{label}</Tip> : label;
+}
+
+/** Small reset arrow shown once a field differs from the preset. */
+function ResetButton({ show, onReset, label }: { show?: boolean; onReset?: () => void; label: string }) {
+  return (
+    <button
+      aria-label={`Reset ${label}`} title="Reset to preset" tabIndex={show ? 0 : -1} onClick={onReset}
+      className={cx('grid size-5 place-items-center rounded text-faint transition-opacity duration-150 hover:bg-white/[0.06] hover:text-fg', show && onReset ? 'opacity-100' : 'pointer-events-none opacity-0')}
+    >
+      <RotateCcw className="size-3" />
+    </button>
+  );
+}
+
 function fmt(v: number, step: number) {
   const d = step >= 1 ? 0 : Math.min(3, Math.ceil(-Math.log10(step)));
   return v.toFixed(d);
 }
 
-/** Label + editable value + slider. Double-click the label to reset. */
+/** Label + editable value + slider. Double-click the label (or click the arrow) to reset. */
 export const SliderField = memo(function SliderField(props: {
-  label: string; value: number; min: number; max: number; step: number;
+  label: string; value: number; min: number; max: number; step: number; hint?: string; modified?: boolean;
   onChange: (v: number) => void; onReset?: () => void;
 }) {
-  const { label, value, min, max, step, onChange, onReset } = props;
+  const { label, value, min, max, step, hint, modified, onChange, onReset } = props;
   const [draft, setDraft] = useState<string | null>(null);
   const commit = () => {
     if (draft !== null) {
@@ -61,10 +86,10 @@ export const SliderField = memo(function SliderField(props: {
   };
   return (
     <div className="group py-1.5">
-      <div className="mb-1.5 flex items-center justify-between">
-        <label onDoubleClick={onReset} className="cursor-default text-[12px] text-muted select-none">
-          {label}
-        </label>
+      <div className="mb-1.5 flex items-center justify-between gap-1">
+        <Label text={label} hint={hint} modified={modified} onReset={onReset} />
+        <span className="flex-1" />
+        <ResetButton show={modified} onReset={onReset} label={label} />
         <input
           aria-label={`${label} value`}
           className="w-14 rounded bg-transparent px-1 text-right font-mono text-[11px] text-muted tabular-nums outline-none hover:bg-white/[0.05] focus:bg-white/[0.07] focus:text-fg"
@@ -87,11 +112,14 @@ export const SliderField = memo(function SliderField(props: {
   );
 });
 
-export function Row({ label, children }: { label: string; children: ReactNode }) {
+export function Row({ label, hint, modified, onReset, children }: { label: string; hint?: string; modified?: boolean; onReset?: () => void; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1.5">
-      <span className="shrink-0 text-[12px] text-muted">{label}</span>
-      <div className="flex min-w-0 flex-1 justify-end">{children}</div>
+    <div className="flex items-center justify-between gap-2 py-1.5">
+      <Label text={label} hint={hint} modified={modified} onReset={onReset} />
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+        {onReset && <ResetButton show={modified} onReset={onReset} label={label} />}
+        {children}
+      </div>
     </div>
   );
 }

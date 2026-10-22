@@ -186,3 +186,26 @@ test('full coverage puts a glyph in every cell, including dark ones', () => {
   assert.ok(rows.every((row) => row.length > 0 && !/ /.test(row)), 'no blank cells');
   assert.ok(rows[0].startsWith('.') && rows[0].endsWith('#'), 'dark to bright across the ramp');
 });
+
+test('relative and local highlight modes keep a bright image mostly bare', () => {
+  // Bright, flat background (0.8) with one small brighter spot.
+  const w = 240, h = 120;
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const v = Math.hypot(x - 120, y - 60) < 15 ? 255 : 205;
+      data.set([v, v, v, 255], (y * w + x) * 4);
+    }
+  const src = { width: w, height: h, data };
+  const lit = (extra: object) => {
+    const text = render(src, resolveParams({ style: 'characters', unitWidth: 0, cellSize: 8 }, extra), { createCanvas: factory }).text!;
+    const cells = text.split('\n').join('').replace(/ /g, '').length;
+    return cells;
+  };
+  const absolute = lit({ highlightMode: 'absolute' });
+  const relative = lit({ highlightMode: 'relative', threshold: 0.9 });
+  const local = lit({ highlightMode: 'local', localRadius: 40 });
+  assert.ok(absolute > 300, `absolute covers the image (${absolute})`);
+  assert.ok(relative > 0 && relative < absolute / 4, `relative keeps to the spot (${relative})`);
+  assert.ok(local > 0 && local < absolute / 4, `local keeps to the spot (${local})`);
+});

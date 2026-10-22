@@ -4,7 +4,7 @@
     "preset": "soft-ascii",
     "file": "jellyfish-soft-ascii.jpg",
     "thumb": "jellyfish-soft-ascii-thumb.webp",
-    "description": "Glowing ASCII over a softened copy of the photo (the after.mp4 look)"
+    "description": "Glowing ASCII on the highlights, over a softened copy of the photo"
   },
   {
     "source": "jellyfish",
@@ -39,7 +39,7 @@
     "preset": "soft-ascii",
     "file": "planet-soft-ascii.jpg",
     "thumb": "planet-soft-ascii-thumb.webp",
-    "description": "Glowing ASCII over a softened copy of the photo (the after.mp4 look)"
+    "description": "Glowing ASCII on the highlights, over a softened copy of the photo"
   },
   {
     "source": "clouds",

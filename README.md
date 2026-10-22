@@ -28,6 +28,8 @@ pnpm dev
 - Export one image or the whole batch as a `.zip` (PNG, JPEG or WebP) at the original resolution, or with the long edge at 1080p (1920), 2K (2560) or 4K (3840).
 - The export options menu has **Copy CLI command** and **Save params JSON**, which carry the current look over to the CLI.
 
+Hover a control's label for what it does; a dot and a reset arrow mark values changed from the preset.
+
 Shortcuts: `Ctrl+O` open, `Ctrl+S` export, `Ctrl+Shift+S` export all, `Ctrl+Z` / `Ctrl+Shift+Z` undo / redo, `\` before/after split, hold `B` to see the original, `G` grid. Double-click a slider label to reset it to the preset value.
 
 Built with React, [Radix UI](https://www.radix-ui.com/) primitives and Tailwind CSS. Deployed to GitHub Pages by `.github/workflows/pages.yml` on every push to `main`.
@@ -64,7 +66,7 @@ A 30 s 1080p clip (900 frames) takes about 32 s for `soft-ascii` and 34 s for `d
 | `lines` | Vertical strokes |
 | `dither` | Palette quantization: Floyd–Steinberg, Atkinson, Jarvis, Stucki, Burkes, Sierra (3 variants), Bayer 2/4/8/16, clustered-dot halftone, interleaved-gradient noise, line patterns, random noise |
 
-Glyph styles draw over a softened copy of the source (`--bg-blur`, `--bg-opacity`) and only on cells brighter than `--threshold`. Set `--coverage full` to convert the whole image instead (every cell gets a glyph, threshold ignored); pair it with `--bg-opacity 0` for classic ASCII art, as the `full-ascii` and `full-cross` presets do. Palettes: `auto` (k-means colors picked from the image, count = `--dither-levels`), `source` (per-channel levels), named retro palettes, or a list like `--palette "#000,#f0f,#0ff"`.
+Glyph styles draw over a softened copy of the source (`--bg-blur`, `--bg-opacity`) and only on cells brighter than `--threshold`. On bright photos an absolute threshold can put glyphs everywhere, so `--highlight-mode` changes what counts as bright: `absolute` (default) compares luminance with the threshold, `relative` ranks cells within the image so the threshold is the share left bare (`0.7` = glyphs on the brightest 30%), and `local` compares each cell with its surroundings (`--local-radius`), so flat bright areas like sky stay bare. None of them darken the image. Set `--coverage full` to convert the whole image instead (every cell gets a glyph, threshold ignored); pair it with `--bg-opacity 0` for classic ASCII art, as the `full-ascii` and `full-cross` presets do. Palettes: `auto` (k-means colors picked from the image, count = `--dither-levels`), `source` (per-channel levels), named retro palettes, or a list like `--palette "#000,#f0f,#0ff"`.
 
 Blur has three levels: `--bg-blur` (the background under the glyphs), `--glyph-blur` (the glyphs only) and `--blur` (the finished image, any style).
 
