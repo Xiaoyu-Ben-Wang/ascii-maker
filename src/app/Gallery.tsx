@@ -83,7 +83,6 @@ export function Gallery({ images, activeId, params, size, renderer, gen, onOpen,
         ))}
         <button onClick={onAdd} className="press flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line-strong text-muted outline-none hover:border-accent/50 hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40">
           <Plus className="size-5" />
-          <span className="text-[12px]">Add images</span>
         </button>
       </div>
     </div>

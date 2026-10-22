@@ -39,12 +39,19 @@ node cli/ascii-maker.ts photo.jpg -p soft-ascii -o out.png
 node cli/ascii-maker.ts photo.jpg -p dither-scanline --dither-algo atkinson --palette pico8 -o out.png
 node cli/ascii-maker.ts photo.jpg --style cross --cell-size 18 --bloom 0.8 --size 4k -o out.jpg
 node cli/ascii-maker.ts photos/*.jpg -p diagonal --size 1080p -o out/     # batch into a folder
+node cli/ascii-maker.ts clip.mp4 -p soft-ascii --size 1080p -o clip-ascii.mp4
 node cli/ascii-maker.ts photo.jpg -c params.json --text out.txt -o out.png --json
 node cli/ascii-maker.ts --list        # presets, styles, dither algorithms, palettes
 node cli/ascii-maker.ts --help        # every param flag with its range and default
 ```
 
 Requires Node 23.6+ (it runs the TypeScript directly). Settings apply in this order: defaults → `--preset` → `--config` JSON → individual flags. `--json` prints a machine-readable summary per image, and `--dump-params` prints the resolved params without rendering. Out-of-range or unknown values fail with a clear error, which makes it easy for scripts and agents to drive.
+
+### Video
+
+Video inputs (`.mp4 .mov .mkv .webm .avi .m4v .gif`) are decoded with ffmpeg (on `PATH` or `FFMPEG_PATH`), rendered on all CPU cores, and encoded to mp4 (H.264), webm (VP9) or gif, keeping the audio. Flags: `--fps`, `--start`, `-t/--duration`, `--crf`, `--threads`, `--no-audio`. Film grain animates per frame, and the `auto` dither palette is locked from the first frame so colors don't flicker.
+
+A 30 s 1080p clip (900 frames) takes about 32 s for `soft-ascii` and 34 s for `dither-scanline` on a Ryzen 7 9800X3D. The browser engine renders the same frames at 43–50 frames/s with 14 workers (about 20 s for 30 s of video) or 25–29 frames/s with 6. The editor doesn't decode or encode video yet.
 
 ## Styles
 

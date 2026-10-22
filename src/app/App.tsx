@@ -15,8 +15,8 @@ import { zip } from './zip.ts';
 const STORE_KEY = 'ascii-maker:v2';
 const CUSTOM = 'custom';
 const PRESET_OPTIONS = [
-  ...Object.entries(PRESETS).map(([k, p]) => ({ value: k, label: k, hint: p.description })),
-  { value: CUSTOM, label: 'custom', hint: 'Your own settings' },
+  ...Object.entries(PRESETS).map(([k, p]) => ({ value: k, label: k })),
+  { value: CUSTOM, label: 'custom' },
 ];
 const FORMATS = [
   { value: 'image/png', label: 'PNG' },
@@ -203,7 +203,7 @@ export function App() {
       if (files.length) addFiles(files, 'pasted');
       else notify('No image on the clipboard');
     } catch {
-      notify('Clipboard blocked: press Ctrl V instead');
+      notify('Clipboard blocked, use Ctrl V');
     }
   }, [addFiles, notify]);
 
@@ -350,10 +350,10 @@ export function App() {
   }, [undo, redo, doExport, exportAll, step]);
 
   const sizes = useMemo(() => [
-    { value: 'source' as const, label: 'Original', hint: active ? `${active.width} × ${active.height}, same as the input` : 'Same as the input image' },
-    { value: '1080p' as const, label: '1080p', hint: 'Long edge 1920px' },
-    { value: '2k' as const, label: '2K', hint: 'Long edge 2560px' },
-    { value: '4k' as const, label: '4K', hint: 'Long edge 3840px' },
+    { value: 'source' as const, label: 'Original' },
+    { value: '1080p' as const, label: '1080p' },
+    { value: '2k' as const, label: '2K' },
+    { value: '4k' as const, label: '4K' },
   ], [active]);
 
   const grid = view === 'grid' && images.length > 0;
@@ -396,10 +396,10 @@ export function App() {
               ascii-maker
             </div>
             <div className="mx-1 h-5 w-px bg-line max-sm:hidden" />
-            <Tip label={<>Add images<Kbd>Ctrl O</Kbd></>}>
+            <Tip label={<>Open<Kbd>Ctrl O</Kbd></>}>
               <Button size="icon" aria-label="Add images" onClick={() => fileInput.current?.click()}><ImageUp className="size-4" /></Button>
             </Tip>
-            <Tip label={<>Paste image<Kbd>Ctrl V</Kbd></>}>
+            <Tip label={<>Paste<Kbd>Ctrl V</Kbd></>}>
               <Button size="icon" aria-label="Paste image" onClick={pasteFromClipboard}><ClipboardPaste className="size-4" /></Button>
             </Tip>
             <div className="mx-1 h-5 w-px bg-line" />
@@ -409,7 +409,7 @@ export function App() {
             <Tip label={<>Redo<Kbd>Ctrl Shift Z</Kbd></>}>
               <Button size="icon" aria-label="Redo" onClick={redo} disabled={!future.current.length}><Redo2 className="size-4" /></Button>
             </Tip>
-            <Tip label={<>Before / after<Kbd>\</Kbd> · hold <Kbd>B</Kbd></>}>
+            <Tip label={<>Compare<Kbd>\</Kbd></>}>
               <Button size="icon" aria-label="Compare" aria-pressed={split !== null} disabled={!active || grid}
                 className={cx(split !== null && !grid && 'bg-white/[0.08] text-accent')}
                 onClick={() => setSplit((s) => (s === null ? 0.5 : null))}><Columns2 className="size-4" /></Button>
@@ -418,12 +418,12 @@ export function App() {
 
           {images.length > 0 && (
             <div className="glass absolute top-3 right-3 z-10 flex items-center gap-0.5 rounded-xl border border-line p-1 shadow-lg" role="group" aria-label="View">
-              <Tip label={<>Single image<Kbd>G</Kbd></>}>
+              <Tip label={<>Single<Kbd>G</Kbd></>}>
                 <Button size="sm" aria-pressed={!grid} onClick={() => setView('single')} className={cx(!grid && 'bg-white/[0.08] text-fg')}>
                   <Square className="size-3.5" />Single
                 </Button>
               </Tip>
-              <Tip label={<>All images<Kbd>G</Kbd></>}>
+              <Tip label={<>All<Kbd>G</Kbd></>}>
                 <Button size="sm" aria-pressed={grid} onClick={() => setView('grid')} className={cx(grid && 'bg-white/[0.08] text-fg')}>
                   <LayoutGrid className="size-3.5" />All<span className="font-mono text-[11px] text-faint">{images.length}</span>
                 </Button>
@@ -439,7 +439,7 @@ export function App() {
               <span className="h-3 w-px bg-line" />
               <span>{frame.width} × {frame.height}</span>
               <span className="h-3 w-px bg-line" />
-              <span className={cx('transition-colors duration-150', shown.draft ? 'text-faint' : 'text-muted')}>{Math.round(shown.ms)} ms{shown.draft ? ' · draft' : ''}</span>
+              <span className={cx('transition-colors duration-150', shown.draft ? 'text-faint' : 'text-muted')}>{Math.round(shown.ms)} ms</span>
             </div>
           )}
 
@@ -477,14 +477,13 @@ export function App() {
               </Button>
             )}
             <Popover trigger={<Button variant="solid" size="icon" aria-label="Export options"><Settings2 className="size-4" /></Button>}>
-              <div className="mb-2 text-[11px] font-medium tracking-[0.08em] text-faint uppercase">Export</div>
-              <Row label="Size"><Select label="Export size" value={exportSize} options={sizes} onChange={setExportSize} /></Row>
+                            <Row label="Size"><Select label="Export size" value={exportSize} options={sizes} onChange={setExportSize} /></Row>
               <Row label="Format"><Select label="Format" value={format} options={FORMATS} onChange={setFormat} /></Row>
               {frame && <div className="pt-1 pb-2 text-right font-mono text-[11px] text-faint">{frame.width} × {frame.height}px</div>}
               <div className="mt-1 grid gap-1 border-t border-line pt-2">
                 {images.length > 1 && (
                   <Button size="sm" className="justify-start" disabled={!!exporting} onClick={exportAll}>
-                    <Download className="size-3.5" />Export all {images.length} as .zip<Kbd>Ctrl Shift S</Kbd>
+                    <Download className="size-3.5" />Export all (.zip)
                   </Button>
                 )}
                 <Button size="sm" className="justify-start" disabled={!shown?.text} onClick={() => shown?.text && copy(shown.text, 'ASCII text')}>

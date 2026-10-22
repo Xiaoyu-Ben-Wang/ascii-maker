@@ -5,7 +5,7 @@ import {
 import { ColorField, Row, Section, Select, SliderField, Switch, TextField, cx } from './ui.tsx';
 
 type Kind = 'range' | 'select' | 'check' | 'color' | 'text';
-interface Field { key: keyof Params; label: string; kind?: Kind; options?: readonly string[]; styles?: readonly Style[]; hint?: string; when?: (p: Params) => boolean }
+interface Field { key: keyof Params; label: string; kind?: Kind; options?: readonly string[]; styles?: readonly Style[]; when?: (p: Params) => boolean }
 interface Group { title: string; styles?: readonly Style[]; fields: Field[]; collapsed?: boolean }
 
 const GLYPH: Style[] = ['characters', 'cross', 'diagonal', 'dots', 'lines'];
@@ -14,12 +14,12 @@ const SHAPES: Style[] = ['cross', 'diagonal', 'dots', 'lines'];
 const GROUPS: Group[] = [
   {
     title: 'Glyphs', styles: GLYPH, fields: [
-      { key: 'cellSize', label: 'Cell size', hint: 'Grid cell height, in pixels of a 1920px-wide image' },
+      { key: 'cellSize', label: 'Cell size' },
       { key: 'charset', label: 'Characters', kind: 'text', styles: ['characters'] },
       { key: 'diagonalMode', label: 'Direction', kind: 'select', options: DIAGONAL_MODES, styles: ['diagonal'] },
       { key: 'strokeWidth', label: 'Stroke width', styles: ['cross', 'diagonal', 'lines'] },
-      { key: 'sizeByBrightness', label: 'Size follows light', kind: 'check', styles: SHAPES },
-      { key: 'threshold', label: 'Threshold', hint: 'Cells darker than this get no glyph' },
+      { key: 'sizeByBrightness', label: 'Scale by light', kind: 'check', styles: SHAPES },
+      { key: 'threshold', label: 'Threshold' },
       { key: 'thresholdSoftness', label: 'Fade-in' },
       { key: 'colorMode', label: 'Color', kind: 'select', options: COLOR_MODES },
       { key: 'monoColor', label: 'Mono color', kind: 'color', when: (p) => p.colorMode === 'mono' },
@@ -40,7 +40,7 @@ const GROUPS: Group[] = [
     title: 'Dither', styles: ['dither'], fields: [
       { key: 'ditherAlgo', label: 'Algorithm', kind: 'select', options: DITHER_ALGOS },
       { key: 'palette', label: 'Palette', kind: 'select', options: PALETTE_NAMES },
-      { key: 'ditherLevels', label: 'Colors / levels', hint: 'Palette size for "auto", levels per channel for "source"' },
+      { key: 'ditherLevels', label: 'Colors' },
       { key: 'pixelSize', label: 'Pixel size' },
       { key: 'ditherSpread', label: 'Strength' },
     ],
@@ -58,7 +58,7 @@ const GROUPS: Group[] = [
       { key: 'scanlines', label: 'Scanlines' },
       { key: 'scanlineSpacing', label: 'Line spacing', when: (p) => p.scanlines > 0 },
       { key: 'vignette', label: 'Vignette' },
-      { key: 'chromatic', label: 'Chromatic aberration' },
+      { key: 'chromatic', label: 'Chromatic' },
       { key: 'grain', label: 'Grain' },
     ],
   },
@@ -75,7 +75,7 @@ const GROUPS: Group[] = [
     title: 'Advanced', collapsed: true, fields: [
       { key: 'font', label: 'Font', kind: 'text', styles: ['characters'] },
       { key: 'seed', label: 'Seed' },
-      { key: 'unitWidth', label: 'Unit width', hint: 'Pixel sizes are measured on an image this wide; 0 = absolute pixels' },
+      { key: 'unitWidth', label: 'Unit width' },
     ],
   },
 ];
@@ -91,7 +91,7 @@ const FieldControl = memo(function FieldControl({ f, value, set, base }: { f: Fi
   const put = (v: unknown) => set({ [f.key]: v } as Partial<Params>);
   if (kind === 'range') {
     const [min, max, step] = RANGES[f.key] ?? [0, 1, 0.01];
-    return <SliderField label={f.label} hint={f.hint} value={value as number} min={min} max={max} step={step} onChange={put} onReset={() => put(base)} />;
+    return <SliderField label={f.label} value={value as number} min={min} max={max} step={step} onChange={put} onReset={() => put(base)} />;
   }
   if (kind === 'select') return <Row label={f.label}><Select label={f.label} value={value as string} options={f.options!} onChange={put} /></Row>;
   if (kind === 'check') return <Row label={f.label}><Switch label={f.label} checked={value as boolean} onChange={put} /></Row>;

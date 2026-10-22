@@ -2,7 +2,7 @@ import { ImageUp, Sparkles } from 'lucide-react';
 import { EXAMPLES, exampleUrl, type SampleSource } from './sample.ts';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Frame } from '../engine/index.ts';
-import { Button, Kbd } from './ui.tsx';
+import { Button } from './ui.tsx';
 
 interface Props {
   original: ImageBitmap | null;
@@ -85,9 +85,7 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
             <div className="absolute inset-y-0 z-10 w-8 -translate-x-1/2 cursor-ew-resize touch-none" style={{ left: `${split * 100}%` }} onPointerDown={startDrag}>
               <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/80 shadow-[0_0_12px_rgb(255_255_255/0.6)]" />
               <div className="absolute top-1/2 left-1/2 flex size-7 -translate-1/2 items-center justify-center rounded-full border border-white/30 bg-black/50 font-mono text-[10px] text-white backdrop-blur">⇆</div>
-              <span className="glass absolute top-2 right-6 rounded px-1.5 py-0.5 text-[10px] text-muted">before</span>
-              <span className="glass absolute top-2 left-6 rounded px-1.5 py-0.5 text-[10px] text-muted">after</span>
-            </div>
+                          </div>
           )}
         </div>
       ) : (
@@ -95,15 +93,10 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
           <div className="mb-5 font-mono text-[11px] leading-[1.15] whitespace-pre text-accent/70 select-none" aria-hidden>
             {'  .:-=+xX0S8#@\n .:-=+xX0S8#@@\n:-=+xX0S8#@@@\n'}
           </div>
-          <h1 className="text-[22px] font-semibold tracking-tight text-fg">Turn any image into glyphs</h1>
-          <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-muted">
-            ASCII, cross-stitch, hatching, halftone and dither, with bloom and scanlines. Everything runs in your browser.
-          </p>
-          <div className="mt-6 flex gap-2">
-            <Button variant="primary" onClick={onOpen}><ImageUp className="size-4" />Open images</Button>
-            <Button variant="solid" onClick={onSamples}><Sparkles className="size-4" />Try the samples</Button>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={onOpen}><ImageUp className="size-4" />Open</Button>
+            <Button variant="solid" onClick={onSamples}><Sparkles className="size-4" />Samples</Button>
           </div>
-          <p className="mt-4 text-[12px] text-faint">or drop / paste images <Kbd>Ctrl V</Kbd>. Load several to edit them together.</p>
           <div className="mt-10 grid w-full grid-cols-2 gap-3 sm:grid-cols-3">
             {EXAMPLES.map((ex) => (
               <button

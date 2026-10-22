@@ -47,10 +47,10 @@ function fmt(v: number, step: number) {
 
 /** Label + editable value + slider. Double-click the label to reset. */
 export const SliderField = memo(function SliderField(props: {
-  label: string; value: number; min: number; max: number; step: number; hint?: string;
+  label: string; value: number; min: number; max: number; step: number;
   onChange: (v: number) => void; onReset?: () => void;
 }) {
-  const { label, value, min, max, step, onChange, onReset, hint } = props;
+  const { label, value, min, max, step, onChange, onReset } = props;
   const [draft, setDraft] = useState<string | null>(null);
   const commit = () => {
     if (draft !== null) {
@@ -62,7 +62,7 @@ export const SliderField = memo(function SliderField(props: {
   return (
     <div className="group py-1.5">
       <div className="mb-1.5 flex items-center justify-between">
-        <label onDoubleClick={onReset} title={hint ?? (onReset ? 'Double-click to reset' : undefined)} className="cursor-default text-[12px] text-muted select-none">
+        <label onDoubleClick={onReset} className="cursor-default text-[12px] text-muted select-none">
           {label}
         </label>
         <input

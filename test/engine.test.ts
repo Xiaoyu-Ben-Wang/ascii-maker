@@ -162,3 +162,18 @@ test('zip writer produces an archive standard tools can read', async () => {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
   }
 });
+
+test('CLI converts a video, keeping frame count, size and audio', (t) => {
+  const has = (bin: string) => { try { execFileSync(bin, ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } };
+  if (!has('ffmpeg') || !has('ffprobe')) return t.skip('ffmpeg not installed');
+  const dir = mkdtempSync(join(tmpdir(), 'ascii-video-'));
+  const input = join(dir, 'in.mp4'), out = join(dir, 'out.mp4');
+  execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24:duration=1', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', input]);
+  const res = JSON.parse(execFileSync(process.execPath, ['cli/ascii-maker.ts', input, '-p', 'dither-scanline', '--threads', '2', '-o', out, '--json'], { encoding: 'utf8' }));
+  assert.equal(res.frames, 24);
+  const probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-count_frames', '-show_entries', 'stream=codec_type,width,height,nb_read_frames', '-of', 'json', out], { encoding: 'utf8' }));
+  const v = probe.streams.find((s: { codec_type: string }) => s.codec_type === 'video');
+  assert.deepEqual([v.width, v.height, Number(v.nb_read_frames)], [320, 180, 24]);
+  assert.ok(probe.streams.some((s: { codec_type: string }) => s.codec_type === 'audio'), 'audio track kept');
+});

@@ -1,4 +1,4 @@
-import { dither } from './dither.ts';
+import { autoPalette, dither } from './dither.ts';
 import type { Params } from './params.ts';
 import {
   adjust, blur, clamp01, cloneF, createF, downsample, fromRGBA, hexToRgb, luma, mulberry32, resizeF, toRGBA,
@@ -34,6 +34,8 @@ export interface RenderOptions {
   cache?: RenderCache;
   /** Identifies the source pixels; must change whenever they do. */
   sourceKey?: string;
+  /** Video frame number; varies the film grain so it animates instead of sitting still on the image. */
+  frame?: number;
 }
 
 /** LRU of intermediate images, bounded in bytes. Entries are shared, so callers must never mutate them. */
@@ -100,7 +102,7 @@ export function render(src: RGBAImage, p: Params, opts: RenderOptions): RenderRe
     ({ out, glow, text } = renderGlyphs(img, p, s, opts.createCanvas, minPx, (k, make) => memo(`${adjKey}|${k}`, make)));
   }
 
-  postProcess(out, p, s, glow);
+  postProcess(out, p, s, glow, opts.frame ?? 0);
   return { width: out.width, height: out.height, data: toRGBA(out), text };
 }
 
@@ -171,14 +173,44 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
     edgeLum = blur(f, 1.5).r;
   }
 
-  const canvas = createCanvas(w, h);
-  const ctx = canvas.getContext('2d') as Ctx2D;
-  ctx.clearRect(0, 0, w, h);
-  ctx.lineCap = 'round';
-  ctx.lineWidth = Math.max(minPx, ch * p.strokeWidth);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = `${Math.round(ch)}px ${p.font}`;
+  // Glyphs are rasterized once into alpha masks (the atlas) and stamped per cell in JS. Drawing each cell through
+  // the canvas is far slower, and native canvases serialize text drawing across threads.
+  const lineWidth = Math.max(minPx, ch * p.strokeWidth);
+  const pad = Math.ceil(Math.max(lineWidth, ch * 0.2));
+  const mw = Math.ceil(cw) + 2 * pad, mh = Math.ceil(ch) + 2 * pad;
+  const fontPx = Math.round(ch);
+  const atlasKey = `${p.style}|${mw}x${mh}|${ch.toFixed(2)}|${cw.toFixed(2)}|${lineWidth.toFixed(2)}|${p.font}`;
+  const mask = (key: string, draw: (ctx: Ctx2D, x: number, y: number) => void) =>
+    glyphMask(`${atlasKey}|${key}`, mw, mh, createCanvas, (ctx) => {
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#fff';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = lineWidth;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `${fontPx}px ${p.font}`;
+      draw(ctx, mw / 2, mh / 2);
+    });
+  // Shape sizes are quantized so a handful of masks cover every brightness.
+  const LEVELS = 24;
+  const level = (t: number) => Math.round(clamp01(t) * LEVELS) / LEVELS;
+
+  let glow = createF(w, h);
+  let alpha = createF(w, h);
+  const gr = glow.r, gg = glow.g, gb = glow.b, al = alpha.r;
+  const stamp = (m: Float32Array, mx: number, my: number, r: number, g: number, b: number, a: number) => {
+    const x0 = Math.round(mx - mw / 2), y0 = Math.round(my - mh / 2);
+    const i0 = Math.max(0, -x0), i1 = Math.min(mw, w - x0);
+    for (let j = Math.max(0, -y0), j1 = Math.min(mh, h - y0); j < j1; j++) {
+      let o = (y0 + j) * w + x0 + i0;
+      for (let mi = j * mw + i0, me = j * mw + i1; mi < me; mi++, o++) {
+        const ea = m[mi] * a;
+        if (ea === 0) continue;
+        const k = 1 - ea;
+        gr[o] = gr[o] * k + r * ea; gg[o] = gg[o] * k + g * ea; gb[o] = gb[o] * k + b * ea; al[o] = al[o] * k + ea;
+      }
+    }
+  };
 
   const mono = hexToRgb(p.monoColor);
   const rand = mulberry32(p.seed);
@@ -205,36 +237,28 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
       r = clamp01((r + (1 - r) * p.glyphTint) * p.glyphBoost);
       g = clamp01((g + (1 - g) * p.glyphTint) * p.glyphBoost);
       b = clamp01((b + (1 - b) * p.glyphTint) * p.glyphBoost);
-      const color = `rgba(${(r * 255) | 0},${(g * 255) | 0},${(b * 255) | 0},${a.toFixed(3)})`;
-      const x0 = cx * cw, y0 = cy * ch;
-      const mx = x0 + cw / 2, my = y0 + ch / 2;
-      const size = p.sizeByBrightness ? 0.3 + 0.7 * t : 1;
+      const mx = cx * cw + cw / 2, my = cy * ch + ch / 2;
+      const q = level(t);
+      const size = p.sizeByBrightness ? 0.3 + 0.7 * q : 1;
 
       switch (p.style) {
         case 'characters': {
           const idx = charStart + Math.min(chars.length - 1 - charStart, Math.floor(t * (chars.length - charStart)));
           const c = chars[idx];
           line += c;
-          if (c !== ' ') {
-            ctx.fillStyle = color;
-            ctx.fillText(c, mx, my);
-          }
+          if (c !== ' ') stamp(mask(`c${c}`, (ctx, x, y) => ctx.fillText(c, x, y)), mx, my, r, g, b, a);
           break;
         }
         case 'cross': {
-          const arm = ch * 0.45 * size;
-          ctx.strokeStyle = color;
-          ctx.beginPath();
-          if (t < 0.3) {
-            // Faint cells get a small ×, bright cells a bold +.
-            const d = arm * 0.7;
-            ctx.moveTo(mx - d, my - d); ctx.lineTo(mx + d, my + d);
-            ctx.moveTo(mx + d, my - d); ctx.lineTo(mx - d, my + d);
-          } else {
-            ctx.moveTo(mx - arm, my); ctx.lineTo(mx + arm, my);
-            ctx.moveTo(mx, my - arm); ctx.lineTo(mx, my + arm);
-          }
-          ctx.stroke();
+          // Faint cells get a small ×, bright cells a bold +.
+          const x = t < 0.3;
+          stamp(mask(`${x ? 'x' : '+'}${size}`, (ctx, px, py) => {
+            const arm = ch * 0.45 * size, d = arm * 0.7;
+            ctx.beginPath();
+            if (x) { ctx.moveTo(px - d, py - d); ctx.lineTo(px + d, py + d); ctx.moveTo(px + d, py - d); ctx.lineTo(px - d, py + d); }
+            else { ctx.moveTo(px - arm, py); ctx.lineTo(px + arm, py); ctx.moveTo(px, py - arm); ctx.lineTo(px, py + arm); }
+            ctx.stroke();
+          }), mx, my, r, g, b, a);
           break;
         }
         case 'diagonal': {
@@ -249,29 +273,27 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
             // Stroke runs along the edge, i.e. perpendicular to the gradient.
             if (Math.abs(gx) + Math.abs(gy) > 0.2) forward = gx * gy >= 0;
           }
-          const half = (ch / 2) * (p.sizeByBrightness ? 0.45 + 0.55 * t : 1);
-          ctx.strokeStyle = color;
-          ctx.beginPath();
-          if (forward) { ctx.moveTo(mx - half, my + half); ctx.lineTo(mx + half, my - half); }
-          else { ctx.moveTo(mx - half, my - half); ctx.lineTo(mx + half, my + half); }
-          ctx.stroke();
+          const f = p.sizeByBrightness ? 0.45 + 0.55 * q : 1;
+          stamp(mask(`${forward ? 'f' : 'b'}${f}`, (ctx, px, py) => {
+            const half = (ch / 2) * f;
+            ctx.beginPath();
+            if (forward) { ctx.moveTo(px - half, py + half); ctx.lineTo(px + half, py - half); }
+            else { ctx.moveTo(px - half, py - half); ctx.lineTo(px + half, py + half); }
+            ctx.stroke();
+          }), mx, my, r, g, b, a);
           break;
         }
         case 'dots': {
-          const rad = (ch / 2) * (p.sizeByBrightness ? Math.sqrt(t) * 0.95 : 0.8);
+          const rad = (ch / 2) * (p.sizeByBrightness ? Math.sqrt(q) * 0.95 : 0.8);
           if (rad < 0.4) break;
-          ctx.fillStyle = color;
-          ctx.beginPath();
-          ctx.arc(mx, my, rad, 0, Math.PI * 2);
-          ctx.fill();
+          stamp(mask(`o${rad.toFixed(2)}`, (ctx, px, py) => { ctx.beginPath(); ctx.arc(px, py, rad, 0, Math.PI * 2); ctx.fill(); }), mx, my, r, g, b, a);
           break;
         }
         case 'lines': {
-          const half = (ch / 2) * size;
-          ctx.strokeStyle = color;
-          ctx.beginPath();
-          ctx.moveTo(mx, my - half); ctx.lineTo(mx, my + half);
-          ctx.stroke();
+          stamp(mask(`|${size}`, (ctx, px, py) => {
+            const half = (ch / 2) * size;
+            ctx.beginPath(); ctx.moveTo(px, py - half); ctx.lineTo(px, py + half); ctx.stroke();
+          }), mx, my, r, g, b, a);
           break;
         }
       }
@@ -279,17 +301,7 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
     textRows.push(line.replace(/\s+$/, ''));
   }
 
-  const gd = ctx.getImageData(0, 0, w, h).data;
   const out = bg;
-  // Premultiplied glyph layer; also the bloom source so the glow follows the glyphs.
-  let glow = createF(w, h);
-  let alpha = createF(w, h);
-  for (let i = 0, q = 0; i < out.r.length; i++, q += 4) {
-    const a = gd[q + 3] / 255;
-    if (a === 0) continue;
-    glow.r[i] = (gd[q] / 255) * a; glow.g[i] = (gd[q + 1] / 255) * a; glow.b[i] = (gd[q + 2] / 255) * a;
-    alpha.r[i] = a;
-  }
   if (p.glyphBlur > 0) {
     glow = blur(glow, p.glyphBlur * s);
     alpha = blur(alpha, p.glyphBlur * s);
@@ -305,7 +317,7 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
   return { out, glow, text: p.style === 'characters' ? textRows.join('\n') : undefined };
 }
 
-function postProcess(img: FImage, p: Params, s: number, glowSource?: FImage) {
+function postProcess(img: FImage, p: Params, s: number, glowSource: FImage | undefined, frame: number) {
   const { width: w, height: h } = img;
   const n = w * h;
 
@@ -363,7 +375,7 @@ function postProcess(img: FImage, p: Params, s: number, glowSource?: FImage) {
   const sp = Math.max(1.5, p.scanlineSpacing * s);
   const lift = 1 + p.scanlines * 0.3;
   const vig = p.vignette > 0 ? vignetteMask(w, h, p.vignette) : null;
-  const rand = mulberry32(p.seed * 7919 + 17);
+  const rand = mulberry32(p.seed * 7919 + 17 + frame * 104729);
   const grain = p.grain;
   for (let y = 0; y < h; y++) {
     let rowM = 1;
@@ -398,3 +410,34 @@ function vignetteMask(w: number, h: number, v: number): Float32Array {
 }
 
 const shoulder = (v: number) => (v <= 0.8 ? v : 0.8 + 0.2 * (1 - Math.exp(-(v - 0.8) / 0.2)));
+
+/**
+ * Resolves an "auto" dither palette against `src` and returns params with that palette spelled out as hex,
+ * so every frame of a video uses the same colors instead of flickering between per-frame palettes.
+ */
+export function lockPalette(src: RGBAImage, p: Params): Params {
+  if (p.style !== 'dither' || p.palette !== 'auto') return p;
+  const img = fromRGBA(src);
+  adjust(img, p);
+  const w = Math.min(256, img.width);
+  const small = resizeF(img, w, Math.max(1, Math.round((img.height * w) / img.width)));
+  const hex = (v: number) => Math.round(clamp01(v) * 255).toString(16).padStart(2, '0');
+  const cols = autoPalette(small, Math.max(2, Math.round(p.ditherLevels)), p.seed);
+  return { ...p, palette: cols.map(([r, g, b]) => `#${hex(r)}${hex(g)}${hex(b)}`).join(',') };
+}
+
+const atlas = new Map<string, Float32Array>();
+/** Alpha mask of one glyph, rendered once and cached (across renders too, which matters for video). */
+function glyphMask(key: string, mw: number, mh: number, createCanvas: CanvasFactory, draw: (ctx: Ctx2D) => void): Float32Array {
+  let m = atlas.get(key);
+  if (m) return m;
+  const ctx = createCanvas(mw, mh).getContext('2d') as Ctx2D;
+  ctx.clearRect(0, 0, mw, mh);
+  draw(ctx);
+  const d = ctx.getImageData(0, 0, mw, mh).data;
+  m = new Float32Array(mw * mh);
+  for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3] / 255;
+  if (atlas.size > 2000) atlas.clear();
+  atlas.set(key, m);
+  return m;
+}
