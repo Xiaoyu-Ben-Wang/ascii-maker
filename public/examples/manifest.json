@@ -1,0 +1,72 @@
+[
+  {
+    "source": "jellyfish",
+    "preset": "soft-ascii",
+    "file": "jellyfish-soft-ascii.jpg",
+    "thumb": "jellyfish-soft-ascii-thumb.webp",
+    "description": "Glowing ASCII over a softened copy of the photo (the after.mp4 look)"
+  },
+  {
+    "source": "jellyfish",
+    "preset": "cross",
+    "file": "jellyfish-cross.jpg",
+    "thumb": "jellyfish-cross-thumb.webp",
+    "description": "Cross-stitch \"+\" and \"×\" marks that grow with brightness"
+  },
+  {
+    "source": "jellyfish",
+    "preset": "diagonal",
+    "file": "jellyfish-diagonal.jpg",
+    "thumb": "jellyfish-diagonal-thumb.webp",
+    "description": "Hatched slashes that follow the image edges, warm film look"
+  },
+  {
+    "source": "jellyfish",
+    "preset": "dither-scanline",
+    "file": "jellyfish-dither-scanline.jpg",
+    "thumb": "jellyfish-dither-scanline-thumb.webp",
+    "description": "Chunky Floyd–Steinberg dither with CRT scanlines and bloom"
+  },
+  {
+    "source": "planet",
+    "preset": "cross",
+    "file": "planet-cross.jpg",
+    "thumb": "planet-cross-thumb.webp",
+    "description": "Cross-stitch \"+\" and \"×\" marks that grow with brightness"
+  },
+  {
+    "source": "planet",
+    "preset": "soft-ascii",
+    "file": "planet-soft-ascii.jpg",
+    "thumb": "planet-soft-ascii-thumb.webp",
+    "description": "Glowing ASCII over a softened copy of the photo (the after.mp4 look)"
+  },
+  {
+    "source": "clouds",
+    "preset": "diagonal",
+    "file": "clouds-diagonal.jpg",
+    "thumb": "clouds-diagonal-thumb.webp",
+    "description": "Hatched slashes that follow the image edges, warm film look"
+  },
+  {
+    "source": "clouds",
+    "preset": "dots",
+    "file": "clouds-dots.jpg",
+    "thumb": "clouds-dots-thumb.webp",
+    "description": "Halftone dots that scale with brightness"
+  },
+  {
+    "source": "orbs",
+    "preset": "gameboy-dither",
+    "file": "orbs-gameboy-dither.jpg",
+    "thumb": "orbs-gameboy-dither-thumb.webp",
+    "description": "Ordered Bayer dither in the 4-tone Game Boy palette with scanlines"
+  },
+  {
+    "source": "orbs",
+    "preset": "matrix",
+    "file": "orbs-matrix.jpg",
+    "thumb": "orbs-matrix-thumb.webp",
+    "description": "Green mono ASCII on black with scanlines"
+  }
+]
