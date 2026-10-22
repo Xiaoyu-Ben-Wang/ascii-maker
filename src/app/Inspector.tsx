@@ -1,13 +1,15 @@
 import { Crosshair } from 'lucide-react';
 import { memo, useRef } from 'react';
 import {
-  COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, RANGES, STYLES, type Params, type Style,
+  CHARSETS, COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, RANGES, STYLES, type Params, type Style,
 } from '../engine/index.ts';
-import { Button, ColorField, Label, Row, Section, Select, SliderField, Switch, TextField, cx } from './ui.tsx';
+import { Button, ColorField, Label, Row, Section, Select, SliderField, Switch, TextField, Tip, cx } from './ui.tsx';
 
 type Kind = 'range' | 'select' | 'check' | 'color' | 'text' | 'point';
 type Option = { value: string; label: string; hint?: string };
-interface Field { key: keyof Params; label: string; hint?: string | ((p: Params) => string); kind?: Kind; options?: readonly Option[]; styles?: readonly Style[]; when?: (p: Params) => boolean;
+interface Field { key: keyof Params; label: string;
+  /** Named values offered as one-click chips under a text field. */
+  library?: Record<string, { chars: string; description: string }>; hint?: string | ((p: Params) => string); kind?: Kind; options?: readonly Option[]; styles?: readonly Style[]; when?: (p: Params) => boolean;
   /** Extra params to change along with this field. */
   also?: (v: unknown, base: Params) => Partial<Params> }
 /**
@@ -33,7 +35,7 @@ const GROUPS: Group[] = [
         also: (v, base) => ({ bgOpacity: v === 'full' ? 0 : base.coverage === 'full' ? DEFAULTS.bgOpacity : base.bgOpacity }),
       },
       { key: 'cellSize', label: 'Size', styles: GLYPH, hint: 'Height of each glyph cell. Smaller means more, finer glyphs.' },
-      { key: 'charset', label: 'Characters', hint: 'Used from dark to bright, left to right.', kind: 'text', styles: ['characters'] },
+      { key: 'charset', label: 'Characters', hint: 'Used from dark to bright, left to right. Pick a set below or type your own.', kind: 'text', styles: ['characters'], library: CHARSETS },
       {
         key: 'diagonalMode', label: 'Direction', kind: 'select', styles: ['diagonal'],
         options: opts(DIAGONAL_MODES, { edge: 'Strokes follow the contours of the image', forward: 'All "/"', backward: 'All "\\"', mixed: 'Random mix of both' }),
@@ -163,6 +165,24 @@ const FieldControl = memo(function FieldControl({ f, hint, value, set, base, bas
     <div className="py-1.5">
       <div className="mb-1.5 flex items-center justify-between"><Label text={f.label} hint={hint} modified={modified} onReset={reset} /></div>
       <TextField label={f.label} value={value as string} onChange={put} mono />
+      {f.library && (
+        <div role="radiogroup" aria-label={`${f.label} sets`} className="mt-1.5 flex flex-wrap gap-1">
+          {Object.entries(f.library).map(([name, item]) => {
+            const on = item.chars === value;
+            return (
+              <Tip key={name} side="top" label={<span className="block max-w-56"><span className="font-mono">{item.chars.trim().slice(0, 24)}</span><br /><span className="text-muted">{item.description}</span></span>}>
+                <button
+                  role="radio" aria-checked={on} onClick={() => put(item.chars)}
+                  className={cx('press rounded-md border px-2 py-0.5 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+                    on ? 'border-accent/50 bg-accent/[0.08] text-accent' : 'border-line bg-white/[0.02] text-muted hover:border-line-strong hover:text-fg')}
+                >
+                  {name}
+                </button>
+              </Tip>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 });

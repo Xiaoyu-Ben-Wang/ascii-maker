@@ -105,6 +105,8 @@ test('CLI renders a file and reports JSON', () => {
   assert.throws(() => cli('--diagonal-mode', 'sideways'));
   assert.equal(JSON.parse(cli('--brightness=-0.2')).brightness, -0.2);
   assert.equal(JSON.parse(cli('--palette', 'ff0000,00ff00')).palette, 'ff0000,00ff00');
+  assert.equal(JSON.parse(cli('--charset', 'blocks')).charset, ' ░▒▓█');
+  assert.equal(JSON.parse(cli('--charset', ' ab')).charset, ' ab');
 });
 
 test('cached renders match uncached renders across param changes', () => {

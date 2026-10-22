@@ -29,6 +29,21 @@ export const HIGHLIGHT_MODES = ['absolute', 'relative', 'local'] as const;
 export type HighlightMode = (typeof HIGHLIGHT_MODES)[number];
 export type ColorMode = (typeof COLOR_MODES)[number];
 
+/** Ready-made character ramps for the "characters" style, each ordered dark → bright. */
+export const CHARSETS: Record<string, { chars: string; description: string }> = {
+  standard: { chars: ' .:-=+xX0S8#@', description: 'Balanced default ramp' },
+  classic: { chars: ' .:-=+*#%@', description: 'The 10-step ramp from classic ASCII art' },
+  detailed: {
+    chars: ' .\'`^",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$',
+    description: '70 characters, the finest tonal steps',
+  },
+  letters: { chars: ' .,:;irsXA253hMHGS#9B&@', description: 'Letters and digits, looks like text' },
+  blocks: { chars: ' ░▒▓█', description: 'Shaded blocks, chunky and solid' },
+  braille: { chars: ' ⠁⠃⠇⠏⠟⠿⡿⣿', description: 'Braille dots that fill in with brightness' },
+  dots: { chars: ' .·•●', description: 'Small to large dots' },
+  binary: { chars: ' 01', description: 'Zeros and ones' },
+};
+
 export interface Params {
   style: Style;
 

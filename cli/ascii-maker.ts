@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-  COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, PRESETS, RANGES, SIZE_NAMES, STYLES, frameFor, render,
+  CHARSETS, COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, PRESETS, RANGES, SIZE_NAMES, STYLES, frameFor, render,
   resolveParams, type Params, type SizeName,
 } from '../src/engine/index.ts';
 import { hexToRgb } from '../src/engine/pixels.ts';
@@ -141,6 +141,8 @@ async function main() {
     console.log(`\nStyles: ${STYLES.join(', ')}`);
     console.log(`Dither algorithms: ${DITHER_ALGOS.join(', ')}`);
     console.log(`Palettes: ${PALETTE_NAMES.join(', ')} (or a comma-separated hex list)`);
+    console.log('\nCharsets (--charset <name> or your own characters, dark to bright):');
+    for (const [name, c] of Object.entries(CHARSETS)) console.log(`  ${name.padEnd(10)} ${JSON.stringify(c.chars).padEnd(26)} ${c.description}`);
     return;
   }
 
@@ -152,6 +154,8 @@ async function main() {
   }
   const config = values.config ? (JSON.parse(readFileSync(values.config as string, 'utf8')) as Partial<Params>) : undefined;
   const params = resolveParams(preset, config, parseFlags(values));
+  // A charset can be named from the library (see --list).
+  if (CHARSETS[params.charset]) params.charset = CHARSETS[params.charset].chars;
   validate(params);
   if (values['dump-params']) return void console.log(JSON.stringify(params, null, 2));
 
