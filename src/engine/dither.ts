@@ -173,6 +173,8 @@ function thresholdMap(algo: DitherAlgo, seed: number): ((x: number, y: number) =
       return (x) => ((x % 4) + 0.5) / 4 - 0.5;
     case 'lines-diag':
       return (x, y) => (((x + y) % 6) + 0.5) / 6 - 0.5;
+    case 'lines-diag-2':
+      return (x, y) => ((((x - y) % 6 + 6) % 6) + 0.5) / 6 - 0.5;
     case 'noise': {
       const rand = mulberry32(seed);
       return () => rand() - 0.5;

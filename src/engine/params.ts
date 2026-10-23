@@ -8,7 +8,7 @@ export const DITHER_ALGOS = [
   // error diffusion
   'floyd-steinberg', 'atkinson', 'jarvis', 'stucki', 'burkes', 'sierra', 'sierra-2row', 'sierra-lite',
   // ordered / threshold maps
-  'bayer2', 'bayer4', 'bayer8', 'bayer16', 'halftone', 'ign', 'lines-h', 'lines-v', 'lines-diag', 'noise',
+  'bayer2', 'bayer4', 'bayer8', 'bayer16', 'halftone', 'ign', 'lines-h', 'lines-v', 'lines-diag', 'lines-diag-2', 'noise',
   'none',
 ] as const;
 export type DitherAlgo = (typeof DITHER_ALGOS)[number];
