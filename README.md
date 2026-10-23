@@ -60,7 +60,7 @@ Pick a preset from the menu at the top, then adjust the sections below it. Hover
 | --- | --- |
 | **Highlight styling** | The style (ASCII, cross, diagonal, dots, lines, dither), cell size, character set, and which parts of the image get glyphs (coverage, threshold, fade-in, what counts as bright). For dither: algorithm, palette, color count, pixel size |
 | **Glyph color** | Source colors or one mono color, whitening, brightness, opacity and softness of the glyphs |
-| **Background image** | The photo under the glyphs: opacity, blur, fill color, and dimming or blurring only near the glyphs |
+| **Background image** | The photo under the glyphs: background color, opacity, blur, and dimming or blurring only near the glyphs |
 | **Glow, Scanlines, Vignette, Color fringe, Grain, Blur** | Post effects; each has an on/off switch |
 | **Adjust photo** | Brightness, contrast, saturation, gamma and invert, applied before anything else |
 | **Advanced** | Font, random seed, and the unit width that sizes are measured against |
@@ -154,7 +154,7 @@ With **Coverage: highlights** (the default), glyphs are drawn only on cells brig
 
 Glyph styles draw over a copy of the photo:
 
-- **Opacity** fades the whole photo toward the **Fill color** (black by default); 0 leaves only the fill.
+- **Opacity** fades the whole photo toward the **Background color** (black by default); 0 leaves only that color. With coverage full the photo is hidden, so the background color moves up to the Highlight styling section, next to Coverage.
 - **Blur** softens the whole photo.
 - **Dim near glyphs** and **Blur near glyphs** do the same only around the glyphs, so the glyphs stand out while the rest of the photo stays bright and sharp. **Spread** sets how far around the glyphs that reaches, in cells. Combine them freely: blur alone gives a glowing look, dim alone a dark outline, both a soft shadow. The `cross`, `diagonal` and `dots` presets use both, at blur 14 and dim 0.2, with the photo otherwise at full opacity; `sharp-ascii` uses only the dim (0.2) and `soft-ascii` only the blur (9).
 
@@ -227,7 +227,7 @@ Every render runs the same pipeline (`src/engine/render.ts`), in floating point 
 
 5. **Drawing glyphs.** Each distinct glyph shape is drawn once on a canvas into an alpha mask (an atlas), with sizes rounded to 24 steps so a handful of masks cover every brightness. Every cell then stamps its mask into a glyph layer in plain JavaScript, which is much faster than drawing thousands of shapes through the canvas. The glyph color is the cell color (or the mono color), mixed toward white by **Whiten** and multiplied by **Brightness**. **Diagonal** in `edge` mode runs a Sobel filter over a smoothed luminance grid and draws each stroke along the edge, perpendicular to the gradient.
 
-6. **Background.** The photo is blurred (a three-pass box blur that approximates a Gaussian, run on a downscaled copy for large radii) and mixed toward the fill color by the opacity. For **Dim / Blur near glyphs**, the grid of glyph opacities is blurred by the spread (in cells), scaled up to the image, and used as a mask: inside it the photo is mixed toward a more blurred copy and toward the fill color.
+6. **Background.** The photo is blurred (a three-pass box blur that approximates a Gaussian, run on a downscaled copy for large radii) and mixed toward the background color by the opacity. For **Dim / Blur near glyphs**, the grid of glyph opacities is blurred by the spread (in cells), scaled up to the image, and used as a mask: inside it the photo is mixed toward a more blurred copy and toward the background color.
 
 7. **Composite.** The glyph layer (optionally softened) is blended over the background by its alpha.
 

@@ -34,6 +34,8 @@ const GROUPS: Group[] = [
         // Full coverage hides the photo underneath so only glyphs remain; going back restores it.
         also: (v, base) => ({ bgOpacity: v === 'full' ? 0 : base.coverage === 'full' ? DEFAULTS.bgOpacity : base.bgOpacity }),
       },
+      // With full coverage the photo is hidden, so the color behind the glyphs belongs up here with the look itself.
+      { key: 'bgColor', label: 'Background color', hint: 'Shows between and behind the glyphs.', kind: 'color', styles: GLYPH, when: (p) => p.coverage === 'full' },
       { key: 'cellSize', label: 'Size', styles: GLYPH, hint: 'Height of each glyph cell. Smaller means more, finer glyphs.' },
       { key: 'charset', label: 'Characters', hint: 'Used from dark to bright, left to right. Pick a set below or type your own.', kind: 'text', styles: ['characters'], library: CHARSETS },
       {
@@ -81,9 +83,9 @@ const GROUPS: Group[] = [
   },
   {
     title: 'Background image', styles: [...GLYPH, 'photo'], fields: [
-      { key: 'bgOpacity', label: 'Opacity', hint: 'How much of the photo shows behind the glyphs. 0 leaves only the fill color.' },
+      { key: 'bgColor', label: 'Background color', hint: 'What the photo fades into as opacity drops. At opacity 0 it is the whole background.', kind: 'color', when: (p) => p.style === 'photo' || p.coverage !== 'full' },
+      { key: 'bgOpacity', label: 'Opacity', hint: 'How much of the photo shows behind the glyphs. 0 leaves only the background color.' },
       { key: 'bgBlur', label: 'Blur', hint: 'Blurs the photo. 0 keeps it sharp.' },
-      { key: 'bgColor', label: 'Fill color', hint: 'What shows through as opacity drops.', kind: 'color' },
       { key: 'haloDim', label: 'Dim near glyphs', hint: 'Darkens the photo only around the glyphs, so they stand out while the rest stays bright.', styles: GLYPH, when: (p) => p.coverage !== 'full' },
       { key: 'haloBlur', label: 'Blur near glyphs', hint: 'Softens the photo only around the glyphs. Pair with Blur at 0 for a sharp photo with soft glyph areas.', styles: GLYPH, when: (p) => p.coverage !== 'full' },
       { key: 'haloRadius', label: 'Spread', hint: 'How far around the glyphs the dimming and blur reach, in cells.', styles: GLYPH, when: (p) => p.coverage !== 'full' && (p.haloDim > 0 || p.haloBlur > 0) },
