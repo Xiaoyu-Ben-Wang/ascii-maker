@@ -8,6 +8,8 @@ import type { Crop } from './worker.ts';
 export interface VideoJob {
   file: File; width: number; height: number; crop: Crop; params: Params; mask?: HighlightMask;
   format: 'mp4' | 'webm'; audio: boolean; gpu: boolean;
+  /** Encoder quality, 0 (smallest) to 1 (best). */
+  quality: number;
 }
 
 export type VideoWorkerMessage =
@@ -38,7 +40,7 @@ self.onmessage = async (e: MessageEvent<VideoJob>) => {
       input, output, tracks: 'primary', showWarnings: false,
       video: {
         crop: { left: job.crop.x, top: job.crop.y, width: job.crop.w, height: job.crop.h },
-        width: w, height: h, fit: 'fill', codec: job.format === 'mp4' ? 'avc' : 'vp9', quality: mb.QUALITY_HIGH, forceTranscode: true,
+        width: w, height: h, fit: 'fill', codec: job.format === 'mp4' ? 'avc' : 'vp9', quality: new mb.Quality(job.quality), forceTranscode: true,
         process: (sample) => {
           sample.draw(src, 0, 0, w, h);
           const img = src.getImageData(0, 0, w, h);

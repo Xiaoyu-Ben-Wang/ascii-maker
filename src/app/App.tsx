@@ -91,6 +91,7 @@ export function App() {
   const [pngLevel, setPngLevel] = useState(5);
   const [videoFormat, setVideoFormat] = useState<VideoFormat>('mp4');
   const [keepAudio, setKeepAudio] = useState(true);
+  const [videoQuality, setVideoQuality] = useState(50);
   const [encodable, setEncodable] = useState<VideoFormat[] | null>(null);
   /** The running export: a label and progress 0..1 (null while it can't be measured). */
   const [job, setJob] = useState<{ label: string; value: number | null } | null>(null);
@@ -420,13 +421,13 @@ export function App() {
       const fmt = ok.includes(videoFormat) ? videoFormat : ok[0];
       if (!fmt) throw new Error('this browser cannot encode video');
       const total = Math.max(1, Math.round(img.video.info.duration * img.video.info.fps));
-      const r = await renderer!.exportVideo({ sourceId: img.id, file: img.video.file, width, height, crop: f.crop, params: p, format: fmt, audio: keepAudio },
+      const r = await renderer!.exportVideo({ sourceId: img.id, file: img.video.file, width, height, crop: f.crop, params: p, format: fmt, audio: keepAudio, quality: videoQuality / 100 },
         (v) => onFrame?.(v, Math.max(total, v.frame)), signal);
       return { blob: r.blob, width, height, ms: r.ms, name: `${img.name}-${p.style}.${fmt}` };
     }
     const r = await abortable(renderer!.export({ sourceId: img.id, width: f.width, height: f.height, crop: f.crop, params: p, mime: format, quality: quality / 100, pngLevel }), signal);
     return { ...r, name: `${img.name}-${p.style}.${ext(format)}` };
-  }, [renderer, exportSize, format, quality, pngLevel, videoFormat, keepAudio]);
+  }, [renderer, exportSize, format, quality, pngLevel, videoFormat, keepAudio, videoQuality]);
 
   const startJob = useCallback((label: string, value: number | null) => {
     const ac = new AbortController();
@@ -753,6 +754,7 @@ export function App() {
                         return { value: f.value, label: f.label, disabled: off, hint: off ? 'This browser cannot encode it' : undefined };
                       })} />
                   </Row>
+                  <SliderField label="Video quality" hint="Lower makes smaller video files with more compression artifacts." value={videoQuality} min={1} max={100} step={1} onChange={setVideoQuality} />
                   <Row label="Keep audio" hint="Copy the source audio into exported videos, or leave them silent.">
                     <Switch label="Keep audio" checked={keepAudio} onChange={setKeepAudio} />
                   </Row>
