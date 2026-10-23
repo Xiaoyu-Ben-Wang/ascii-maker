@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // CLI for the ascii-maker engine: same renderer as the browser editor, run under Node.
 import { createCanvas, ImageData, loadImage } from '@napi-rs/canvas';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   CHARSETS, COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, PRESETS, RANGES, SIZE_NAMES, STYLES, frameFor, render,
-  resolveParams, type Params, type SizeName,
+  resolveParams, type HighlightMask, type Params, type SizeName,
 } from '../src/engine/index.ts';
 import { hexToRgb } from '../src/engine/pixels.ts';
 import { VIDEO_EXTS, convertVideo } from './video.ts';
@@ -37,6 +37,9 @@ Video (input .mp4 .mov .mkv .webm .avi .m4v .gif; needs ffmpeg on PATH or FFMPEG
       --no-audio          Drop the audio track
       --text <file>       Also write the plain ASCII grid (characters style)
       --quality <0-100>   JPEG/WebP quality (default 92)
+      --mask <image>      Highlight mask, stretched over each input image: white forces glyphs, black keeps
+                          them off, mid-gray (128) or transparent leaves the image alone. Glyph styles
+                          only; not for video
       --dump-params       Print the resolved params as JSON and exit
       --list              List presets, styles, dither algorithms and palettes
       --json              Print a JSON summary instead of a log line
@@ -68,6 +71,7 @@ const options: Record<string, { type: 'string' | 'boolean'; short?: string }> = 
   'no-audio': { type: 'boolean' },
   text: { type: 'string' },
   quality: { type: 'string' },
+  mask: { type: 'string' },
   'dump-params': { type: 'boolean' },
   list: { type: 'boolean' },
   json: { type: 'boolean' },
@@ -180,6 +184,8 @@ async function main() {
     if (!Number.isFinite(x) || x < 0) fail(`--${name} must be a non-negative number`);
     return x;
   };
+  const mask = typeof values.mask === 'string' ? await loadMask(values.mask) : undefined;
+  if (mask && positionals.some((f) => VIDEO_EXTS.includes(extname(f).toLowerCase()))) fail('--mask works with images, not video');
   for (const input of positionals) {
     const video = VIDEO_EXTS.includes(extname(input).toLowerCase());
     const ext = video ? (values.format ? format : 'mp4') : format;
@@ -189,7 +195,7 @@ async function main() {
     // Inputs with the same file name from different folders get -2, -3… instead of overwriting each other.
     for (let n = 2; used.has(out); n++) out = join(outDir ?? '.', `${stem}-${params.style}-${n}.${ext}`);
     used.add(out);
-    if (!video) { await renderFile(input, out, size as SizeName, values, params); continue; }
+    if (!video) { await renderFile(input, out, size as SizeName, values, params, mask); continue; }
     mkdirSync(dirname(out) || '.', { recursive: true });
     const r = await convertVideo(input, out, params, {
       size: size as SizeName, width: num('width'), fps: num('fps'), start: num('start'), duration: num('duration'),
@@ -201,7 +207,22 @@ async function main() {
   }
 }
 
-async function renderFile(input: string, out: string, size: SizeName, values: Record<string, unknown>, params: Params) {
+/** A mask image as gray levels (its luminance over mid-gray). */
+async function loadMask(path: string): Promise<HighlightMask> {
+  if (!existsSync(path)) fail(`mask not found: ${path}`);
+  const img = await loadImage(readFileSync(path));
+  const c = createCanvas(img.width, img.height);
+  // Transparent areas count as mid-gray (leave alone), not black (remove).
+  c.getContext('2d').fillStyle = 'rgb(128,128,128)';
+  c.getContext('2d').fillRect(0, 0, img.width, img.height);
+  c.getContext('2d').drawImage(img, 0, 0);
+  const rgba = c.getContext('2d').getImageData(0, 0, img.width, img.height).data;
+  const data = new Uint8Array(img.width * img.height);
+  for (let i = 0; i < data.length; i++) data[i] = Math.round(0.2126 * rgba[i * 4] + 0.7152 * rgba[i * 4 + 1] + 0.0722 * rgba[i * 4 + 2]);
+  return { width: img.width, height: img.height, data };
+}
+
+async function renderFile(input: string, out: string, size: SizeName, values: Record<string, unknown>, params: Params, mask?: HighlightMask) {
   const t0 = performance.now();
   const image = await loadImage(readFileSync(input));
   let { width: w, height: h } = frameFor(image.width, image.height, size);
@@ -216,7 +237,7 @@ async function renderFile(input: string, out: string, size: SizeName, values: Re
   sctx.drawImage(image, 0, 0, w, h);
   const src = sctx.getImageData(0, 0, w, h);
 
-  const result = render(src, params, { createCanvas: (cw, ch) => createCanvas(cw, ch) });
+  const result = render(src, params, { createCanvas: (cw, ch) => createCanvas(cw, ch), mask });
 
   const outCanvas = createCanvas(w, h);
   outCanvas.getContext('2d').putImageData(new ImageData(result.data, w, h), 0, 0);

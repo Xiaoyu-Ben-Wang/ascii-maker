@@ -36,6 +36,36 @@ export interface RenderOptions {
   sourceKey?: string;
   /** Video frame number; varies the film grain so it animates instead of sitting still on the image. */
   frame?: number;
+  /** Painted highlight mask; only glyph styles use it. */
+  mask?: HighlightMask;
+}
+
+/**
+ * Grayscale mask over the source: 128 leaves a cell alone, toward 255 forces a glyph, toward 0 keeps glyphs off.
+ * `region` is the part of the mask (in mask pixels) that lines up with the rendered image, e.g. after a crop.
+ */
+export interface HighlightMask {
+  width: number;
+  height: number;
+  data: Uint8Array;
+  region?: { x: number; y: number; w: number; h: number };
+}
+
+/** Mask value at cell centers as -1 (remove) .. 1 (add), or null when the mask is blank. */
+function maskCells(m: HighlightMask, cols: number, rows: number, cw: number, ch: number, w: number, h: number): Float32Array | null {
+  const r = m.region ?? { x: 0, y: 0, w: m.width, h: m.height };
+  const out = new Float32Array(cols * rows);
+  let any = false;
+  for (let cy = 0; cy < rows; cy++) {
+    const my = Math.min(m.height - 1, Math.max(0, Math.floor(r.y + (Math.min(h, (cy + 0.5) * ch) / h) * r.h)));
+    for (let cx = 0; cx < cols; cx++) {
+      const mx = Math.min(m.width - 1, Math.max(0, Math.floor(r.x + (Math.min(w, (cx + 0.5) * cw) / w) * r.w)));
+      const v = (m.data[my * m.width + mx] - 128) / (m.data[my * m.width + mx] >= 128 ? 127 : 128);
+      // Ignore the faint edges of soft brush strokes and rounding around 128.
+      if (Math.abs(v) > 0.02) { out[cy * cols + cx] = v; any = true; }
+    }
+  }
+  return any ? out : null;
 }
 
 /** LRU of intermediate images, bounded in bytes. Entries are shared, so callers must never mutate them. */
@@ -101,7 +131,7 @@ export function render(src: RGBAImage, p: Params, opts: RenderOptions): RenderRe
   } else {
     // Source pixels per output pixel: keeps the 1px stroke floor in output pixels so previews match exports.
     const minPx = src.width / (opts.targetWidth ?? src.width);
-    ({ out, glow, text } = renderGlyphs(img, p, s, opts.createCanvas, minPx, (k, make) => memo(`${adjKey}|${k}`, make)));
+    ({ out, glow, text } = renderGlyphs(img, p, s, opts.createCanvas, minPx, (k, make) => memo(`${adjKey}|${k}`, make), opts.mask));
   }
 
   postProcess(out, p, s, glow, opts.frame ?? 0);
@@ -158,7 +188,7 @@ function cellAverages(img: FImage, cols: number, rows: number, cw: number, ch: n
   return out;
 }
 
-function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, memo: Memo) {
+function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, memo: Memo, highlightMask?: HighlightMask) {
   const { width: w, height: h } = img;
 
   const bg = background(img, p, s, memo);
@@ -229,6 +259,8 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
   const textRows: string[] = [];
   const th = full ? 0 : p.threshold;
   const fadeEnd = full ? 0 : th + p.thresholdSoftness * (1 - th);
+  const cover = new Float32Array(cols * rows);
+  const painted = highlightMask ? maskCells(highlightMask, cols, rows, cw, ch, w, h) : null;
 
   for (let cy = 0; cy < rows; cy++) {
     let line = '';
@@ -236,10 +268,17 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
       const i = cy * cols + cx;
       const l = bright[i];
       const jitter = rand();
-      const a = smoothstep(th, fadeEnd, l) * p.glyphOpacity;
+      let a = smoothstep(th, fadeEnd, l) * p.glyphOpacity;
       // t: 0 at the threshold, 1 at full white; drives glyph choice and size.
-      const t = th >= 1 ? 0 : clamp01((l - th) / (1 - th));
+      let t = th >= 1 ? 0 : clamp01((l - th) / (1 - th));
+      const m = painted ? painted[i] : 0;
+      if (m > 0) {
+        // Forced cells below the threshold pick glyphs by their own brightness, so dark areas get light glyphs.
+        a += (p.glyphOpacity - a) * m;
+        t = Math.max(t, l * m);
+      } else if (m < 0) a *= 1 + m;
       if (a < 0.02) { line += ' '; continue; }
+      cover[i] = a;
 
       let r = p.colorMode === 'mono' ? mono[0] : cells.r[i];
       let g = p.colorMode === 'mono' ? mono[1] : cells.g[i];
@@ -312,6 +351,7 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
   }
 
   const out = bg;
+  if (!full && (p.haloDim > 0 || p.haloBlur > 0)) halo(out, img, cover, cols, rows, cw, ch, p, s, memo);
   if (p.glyphBlur > 0) {
     glow = blur(glow, p.glyphBlur * s);
     alpha = blur(alpha, p.glyphBlur * s);
@@ -325,6 +365,27 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
   }
 
   return { out, glow, text: p.style === 'characters' ? textRows.join('\n') : undefined };
+}
+
+/** Dims and/or blurs the photo only near glyphs, so the rest of the image stays as it is. */
+function halo(bg: FImage, img: FImage, cover: Float32Array, cols: number, rows: number, cw: number, ch: number, p: Params, s: number, memo: Memo) {
+  const c = createF(cols, rows);
+  c.r.set(cover);
+  // Spread at cell resolution, then scale up to the cell grid (which can overhang the image edge).
+  const gw = Math.round(cols * cw);
+  const spread = resizeF(blur(c, p.haloRadius), gw, Math.round(rows * ch)).r;
+  const soft = p.haloBlur > 0 ? background(img, { ...p, bgBlur: p.bgBlur + p.haloBlur }, s, memo) : null;
+  const [cr, cg, cb] = hexToRgb(p.bgColor);
+  for (let i = 0; i < bg.r.length; i++) {
+    // The gain makes a lone glyph's halo nearly as strong as a cluster's.
+    const m = clamp01(spread[Math.floor(i / bg.width) * gw + (i % bg.width)] * 3);
+    if (m === 0) continue;
+    if (soft) {
+      bg.r[i] += (soft.r[i] - bg.r[i]) * m; bg.g[i] += (soft.g[i] - bg.g[i]) * m; bg.b[i] += (soft.b[i] - bg.b[i]) * m;
+    }
+    const d = p.haloDim * m;
+    bg.r[i] += (cr - bg.r[i]) * d; bg.g[i] += (cg - bg.g[i]) * d; bg.b[i] += (cb - bg.b[i]) * d;
+  }
 }
 
 /**

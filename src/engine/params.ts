@@ -81,6 +81,9 @@ export interface Params {
   glyphBlur: number; // px softening of the glyph layer only
   bgOpacity: number; // 0..1 opacity of the background image over bgColor
   bgColor: string;
+  haloDim: number; // 0..1 how far the photo near glyphs fades toward bgColor
+  haloBlur: number; // extra blur of the photo near glyphs, in px
+  haloRadius: number; // how far the halo spreads from the glyphs, in cells
 
   // Dither style
   ditherAlgo: DitherAlgo;
@@ -134,6 +137,9 @@ export const DEFAULTS: Params = {
   glyphBlur: 0,
   bgOpacity: 0.85,
   bgColor: '#000000',
+  haloDim: 0,
+  haloBlur: 0,
+  haloRadius: 1.5,
 
   ditherAlgo: 'floyd-steinberg',
   palette: 'auto',
@@ -242,6 +248,9 @@ export const RANGES: Partial<Record<keyof Params, [min: number, max: number, ste
   glyphBlur: [0, 8, 0.1],
   blur: [0, 30, 0.1],
   bgOpacity: [0, 1, 0.01],
+  haloDim: [0, 1, 0.01],
+  haloBlur: [0, 40, 0.5],
+  haloRadius: [0.5, 8, 0.1],
   pixelSize: [1, 32, 1],
   ditherLevels: [2, 32, 1],
   ditherSpread: [0, 1, 0.01],

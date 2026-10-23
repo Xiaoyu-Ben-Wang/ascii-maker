@@ -1,4 +1,4 @@
-import type { Params } from '../engine/index.ts';
+import type { HighlightMask, Params } from '../engine/index.ts';
 import type { Crop, WorkerRequest, WorkerResponse } from '../worker.ts';
 
 export type Rendered = Extract<WorkerResponse, { type: 'rendered' }>;
@@ -112,6 +112,7 @@ export class Renderer {
   private pool: Lane[];
   /** Caller-owned source bitmaps, kept so a crashed worker can be re-seeded. */
   private sources = new Map<number, ImageBitmap>();
+  private masks = new Map<number, HighlightMask>();
   /** Thumbnail-copy scale per source, to map full-resolution crops onto the copies. */
   private thumbScale = new Map<number, number>();
   private onRestart: () => void;
@@ -134,6 +135,8 @@ export class Renderer {
         const copy = full ? await createImageBitmap(bitmap) : await this.thumbCopy(id, bitmap);
         if (this.sources.has(id)) lane.post({ type: 'source', sourceId: id, bitmap: copy }, [copy]);
         else copy.close();
+        const mask = this.masks.get(id);
+        if (mask) lane.post({ type: 'mask', sourceId: id, mask });
       } catch { /* source was closed meanwhile */ }
     }
     lane.resume();
@@ -164,8 +167,17 @@ export class Renderer {
     this.lane(sourceId).post({ type: 'source', sourceId, bitmap: small }, [small]);
   }
 
+  /** Sets (or with null, clears) the painted highlight mask of a source; callers re-request renders afterwards. */
+  setMask(sourceId: number, mask: HighlightMask | null) {
+    if (mask) this.masks.set(sourceId, mask);
+    else this.masks.delete(sourceId);
+    this.main.post({ type: 'mask', sourceId, mask });
+    this.lane(sourceId).post({ type: 'mask', sourceId, mask });
+  }
+
   dropSource(sourceId: number) {
     this.sources.delete(sourceId);
+    this.masks.delete(sourceId);
     this.thumbScale.delete(sourceId);
     this.main.drop(sourceId);
     this.lane(sourceId).drop(sourceId);

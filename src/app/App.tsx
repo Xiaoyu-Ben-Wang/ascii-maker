@@ -1,11 +1,13 @@
 import {
-  Braces, ClipboardPaste, Columns2, Copy, Download, ImageUp, LayoutGrid, Redo2, RotateCcw, Settings2, Square, Terminal, Undo2,
+  Braces, Brush, ClipboardPaste, Columns2, Copy, Download, ImageUp, LayoutGrid, Redo2, RotateCcw, Settings2, Square, Terminal, Undo2,
 } from 'lucide-react';
 import { Tooltip } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULTS, PRESETS, frameFor, resolveParams, type Params, type SizeName } from '../engine/index.ts';
 import { Filmstrip, Gallery, type Img } from './Gallery.tsx';
 import { Inspector } from './Inspector.tsx';
+import { PaintMask, type MaskTool } from './mask.ts';
+import { MaskBar } from './MaskBar.tsx';
 import { Renderer, type Rendered } from './renderer.ts';
 import { SAMPLE_SOURCES, loadSample, type SampleSource } from './sample.ts';
 import { Stage } from './Stage.tsx';
@@ -66,6 +68,15 @@ export function App() {
   const [exporting, setExporting] = useState<string | null>(null);
   const [split, setSplit] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
+  const [masking, setMasking] = useState(false);
+  const [maskTool, setMaskTool] = useState<MaskTool>('add');
+  const [maskSize, setMaskSize] = useState(0.04);
+  const [maskOverlay, setMaskOverlay] = useState(true);
+  /** Bumped whenever a mask changes, so the preview and mask controls refresh. */
+  const [maskGen, setMaskGen] = useState(0);
+  const masks = useRef(new Map<number, PaintMask>());
+  /** Images whose mask has paint on it. */
+  const painted = useRef(new Set<number>());
   const [hold, setHold] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
@@ -80,6 +91,25 @@ export function App() {
   const nextId = useRef(1);
 
   const active = images.find((i) => i.id === activeId) ?? null;
+  const canMask = !!active && view === 'single' && params.style !== 'photo' && params.style !== 'dither';
+  const mask = masking && canMask ? (masks.current.get(active.id) ?? masks.current.set(active.id, new PaintMask(active.width, active.height)).get(active.id)!) : null;
+  const maskingRef = useRef(false);
+  maskingRef.current = !!mask;
+  useEffect(() => { if (!canMask && masking) setMasking(false); }, [canMask, masking]);
+
+  const commitMask = useCallback((id: number) => {
+    const m = masks.current.get(id);
+    const data = m?.read() ?? null;
+    if (data) painted.current.add(id); else painted.current.delete(id);
+    renderer?.setMask(id, data);
+    setMaskGen((g) => g + 1);
+  }, [renderer]);
+  const onStroke = useCallback(() => { if (activeId !== null) commitMask(activeId); }, [activeId, commitMask]);
+  const undoMask = useCallback(() => {
+    if (activeId === null) return;
+    masks.current.get(activeId)?.undoLast();
+    commitMask(activeId);
+  }, [activeId, commitMask]);
 
   const notify = useCallback((text: string) => setToast({ id: Date.now(), text }), []);
   useEffect(() => {
@@ -93,7 +123,11 @@ export function App() {
       notify('Renderer restarted');
       setGen((g) => g + 1);
     });
-    for (const img of imagesRef.current) r.addSource(img.id, img.bitmap);
+    for (const img of imagesRef.current) {
+      r.addSource(img.id, img.bitmap);
+      const m = masks.current.get(img.id)?.read();
+      if (m) r.setMask(img.id, m);
+    }
     setRenderer(r);
     return () => { r.terminate(); setRenderer(null); };
   }, [notify]);
@@ -190,6 +224,8 @@ export function App() {
   }, [addBitmap, applyPreset, notify]);
   const removeImage = useCallback((id: number) => {
     renderer?.dropSource(id);
+    masks.current.delete(id);
+    painted.current.delete(id);
     setImages((list) => {
       const img = list.find((i) => i.id === id);
       // Close after the canvases that draw it have unmounted.
@@ -248,7 +284,7 @@ export function App() {
     if (draftW >= 480) renderer.preview(job(draftW, Math.max(1, Math.round(previewHeight / 2)))).then((r) => show(r, true));
     const t = setTimeout(() => renderer.preview(job(previewWidth, previewHeight)).then((r) => show(r, false)), draftW >= 480 ? 120 : 0);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [active, frame, params, previewWidth, previewHeight, renderer, view, gen]);
+  }, [active, frame, params, previewWidth, previewHeight, renderer, view, gen, maskGen]);
 
   // The result bitmap is consumed by the canvas that shows it, so drop it when that canvas unmounts.
   useEffect(() => {
@@ -334,7 +370,8 @@ export function App() {
     const down = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
-      if (mod && key === 'z' && !typing(e.target)) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+      if (mod && key === 'z' && !typing(e.target) && maskingRef.current && !e.shiftKey) { e.preventDefault(); undoMask(); }
+      else if (mod && key === 'z' && !typing(e.target)) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
       else if (mod && key === 'y' && !typing(e.target)) { e.preventDefault(); redo(); }
       else if (mod && key === 'o') { e.preventDefault(); fileInput.current?.click(); }
       else if (mod && key === 's') {
@@ -343,9 +380,14 @@ export function App() {
         (document.activeElement as HTMLElement | null)?.blur();
         setTimeout(() => (e.shiftKey ? exportAll() : doExport()), 0);
       }
-      else if (e.key === 'Escape') setPicking(false);
+      else if (e.key === 'Escape') { setPicking(false); setMasking(false); }
       else if (mod || typing(e.target) || (e.target as HTMLElement)?.closest?.('[role=slider],[role=combobox],[role=listbox]')) return;
       else if (key === 'b') setHold(true);
+      else if (key === 'm') { setMasking((v) => !v); setPicking(false); }
+      else if (maskingRef.current && key === 'a') setMaskTool('add');
+      else if (maskingRef.current && key === 'r') setMaskTool('remove');
+      else if (maskingRef.current && key === 'e') setMaskTool('erase');
+      else if (maskingRef.current && (key === '[' || key === ']')) setMaskSize((v) => Math.min(0.2, Math.max(0.005, v * (key === ']' ? 1.25 : 0.8))));
       else if (key === 'g') setView((v) => (v === 'grid' ? 'single' : 'grid'));
       else if (e.key === '\\') setSplit((s) => (s === null ? 0.5 : null));
       else if (e.key === 'ArrowRight') step(1);
@@ -357,7 +399,7 @@ export function App() {
     window.addEventListener('keyup', up);
     window.addEventListener('blur', release);
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', release); };
-  }, [undo, redo, doExport, exportAll, step]);
+  }, [undo, redo, undoMask, doExport, exportAll, step]);
 
   const sizes = useMemo(() => [
     { value: 'source' as const, label: 'Original' },
@@ -396,6 +438,7 @@ export function App() {
               onSize={onSize}
               onZoom={setZoom}
               pick={picking && active ? { x: params.vignetteX, y: params.vignetteY, onPick: pickVignette, onDone: () => setPicking(false) } : null}
+              paint={mask ? { mask, tool: maskTool, size: maskSize, overlay: maskOverlay, onStroke } : null}
             />
           )}
 
@@ -426,6 +469,14 @@ export function App() {
                 className={cx(split !== null && !grid && 'bg-white/[0.08] text-accent')}
                 onClick={() => setSplit((s) => (s === null ? 0.5 : null))}><Columns2 className="size-4" /></Button>
             </Tip>
+            <Tip label={canMask ? <>Paint where glyphs go<Kbd>M</Kbd></> : 'Mask brush works with glyph styles'}>
+              <Button size="icon" aria-label="Mask brush" aria-pressed={!!mask} disabled={!canMask}
+                className={cx('relative', mask && 'bg-white/[0.08] text-accent')}
+                onClick={() => { setMasking((v) => !v); setPicking(false); }}>
+                <Brush className="size-4" />
+                {active && painted.current.has(active.id) && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-accent" aria-hidden />}
+              </Button>
+            </Tip>
           </div>
 
           {images.length > 0 && (
@@ -441,6 +492,12 @@ export function App() {
                 </Button>
               </Tip>
             </div>
+          )}
+
+          {mask && (
+            <MaskBar tool={maskTool} size={maskSize} overlay={maskOverlay} canUndo={mask.canUndo}
+              onTool={setMaskTool} onSize={setMaskSize} onOverlay={setMaskOverlay} onUndo={undoMask}
+              onClear={() => { mask.clear(); onStroke(); }} onDone={() => setMasking(false)} />
           )}
 
           {!grid && images.length > 1 && <Filmstrip images={images} activeId={activeId} onSelect={setActiveId} onRemove={removeImage} onAdd={() => fileInput.current?.click()} />}

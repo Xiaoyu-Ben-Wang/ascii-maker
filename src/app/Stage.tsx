@@ -2,6 +2,7 @@ import { ImageUp, Sparkles, ZoomOut } from 'lucide-react';
 import { EXAMPLES, exampleUrl, type SampleSource } from './sample.ts';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Frame } from '../engine/index.ts';
+import type { MaskTool, PaintMask } from './mask.ts';
 import { Button, cx } from './ui.tsx';
 
 interface Props {
@@ -20,8 +21,12 @@ interface Props {
   onZoom?: (renderZoom: number) => void;
   /** When set, clicking or dragging on the image picks a point (0..1 of width and height), shown with a marker. */
   pick?: { x: number; y: number; onPick: (x: number, y: number) => void; onDone: () => void } | null;
+  /** When set, dragging on the image paints the highlight mask. `size` is the brush radius as a share of the image's long edge. */
+  paint?: Paint | null;
   children?: ReactNode;
 }
+
+export interface Paint { mask: PaintMask; tool: MaskTool; size: number; overlay: boolean; onStroke: (done: boolean) => void }
 
 const MAX_ZOOM = 8;
 type View = { z: number; x: number; y: number };
@@ -29,7 +34,7 @@ const NO_ZOOM: View = { z: 1, x: 0, y: 0 };
 /** Power-of-two zoom bucket, so renders only redo at 2×, 4×, 8× rather than on every pinch step. */
 export const renderZoom = (z: number) => Math.min(MAX_ZOOM, 2 ** Math.ceil(Math.log2(Math.max(1, z) - 0.05)));
 
-export function Stage({ original, frame, result, split, onSplit, holdOriginal, onOpen, onSamples, onExample, onSize, onZoom, pick, children }: Props) {
+export function Stage({ original, frame, result, split, onSplit, holdOriginal, onOpen, onSamples, onExample, onSize, onZoom, pick, paint, children }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const origRef = useRef<HTMLCanvasElement>(null);
   const resRef = useRef<HTMLCanvasElement>(null);
@@ -77,7 +82,7 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
       const v = viewRef.current;
       apply(v.z > 1 ? NO_ZOOM : zoomAt(v, 2.5, cx, cy));
     };
-    const onSplitHandle = (t: EventTarget | null) => t instanceof Element && !!t.closest('[data-split-handle],[data-pick-layer]');
+    const onSplitHandle = (t: EventTarget | null) => t instanceof Element && !!t.closest('[data-split-handle],[data-pick-layer],[data-mask-layer]');
 
     let pinch: { d: number; mx: number; my: number; v: View } | null = null;
     let pan: { x: number; y: number; v: View } | null = null;
@@ -87,7 +92,8 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
     const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
     const touchStart = (e: TouchEvent) => {
-      if (onSplitHandle(e.target)) return;
+      // Two fingers always pinch, even over the pick or paint layers.
+      if (e.touches.length < 2 && onSplitHandle(e.target)) return;
       if (e.touches.length >= 2) {
         e.preventDefault();
         const m = mid(e.touches);
@@ -275,6 +281,7 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
                 style={{ left: `${pick.x * 100}%`, top: `${pick.y * 100}%`, scale: `${1 / view.z}` }} />
             </div>
           )}
+          {paint && frame && !pick && <MaskLayer paint={paint} crop={frame.crop} sourceWidth={original.width} />}
           {split !== null && !holdOriginal && (
             <div data-split-handle className="absolute inset-y-0 z-10 w-8 -translate-x-1/2 cursor-ew-resize touch-none" style={{ left: `${split * 100}%`, scale: `${1 / view.z} 1` }} onPointerDown={startDrag}>
               <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/80 shadow-[0_0_12px_rgb(255_255_255/0.6)]" />
@@ -319,6 +326,82 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
         </button>
       )}
       {children}
+    </div>
+  );
+}
+
+/** Paints the highlight mask; the mask covers the whole source, this layer only the framed crop of it. */
+function MaskLayer({ paint, crop, sourceWidth }: { paint: Paint; crop: Frame['crop']; sourceWidth: number }) {
+  const layerRef = useRef<HTMLDivElement>(null);
+  const tintHost = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
+  const stroke = useRef<{ id: number; x: number; y: number; sent: number } | null>(null);
+  const { mask } = paint;
+  const k = mask.width / sourceWidth; // source px -> mask px
+  const radius = paint.size * Math.max(crop.w, crop.h);
+
+  useEffect(() => {
+    const host = tintHost.current!;
+    mask.tint.className = 'pointer-events-none absolute max-w-none';
+    host.appendChild(mask.tint);
+    return () => mask.tint.remove();
+  }, [mask]);
+  // Scale the whole-source tint so its crop region fills the layer.
+  useEffect(() => {
+    const mw = crop.w * k, mh = crop.h * k;
+    Object.assign(mask.tint.style, {
+      width: `${(mask.width / mw) * 100}%`, height: `${(mask.height / mh) * 100}%`,
+      left: `${((-crop.x * k) / mw) * 100}%`, top: `${((-crop.y * k) / mh) * 100}%`,
+    });
+  }, [mask, crop, k]);
+
+  const local = (e: { clientX: number; clientY: number }) => {
+    const r = layerRef.current!.getBoundingClientRect(); // includes the zoom transform
+    return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+  };
+  const toMask = (u: { x: number; y: number }) => ({ x: (crop.x + u.x * crop.w) * k, y: (crop.y + u.y * crop.h) * k });
+
+  const down = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (stroke.current) {
+      // A second finger means a pinch: take back the stroke the first finger started.
+      mask.undoLast();
+      stroke.current = null;
+      paint.onStroke(true);
+      return;
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    mask.snapshot();
+    const p = toMask(local(e));
+    mask.dab(p.x, p.y, radius * k, paint.tool);
+    stroke.current = { id: e.pointerId, x: p.x, y: p.y, sent: performance.now() };
+    paint.onStroke(false);
+  };
+  const move = (e: React.PointerEvent) => {
+    const u = local(e);
+    setHover(u);
+    const s = stroke.current;
+    if (!s || s.id !== e.pointerId) return;
+    const p = toMask(u);
+    mask.line(s.x, s.y, p.x, p.y, radius * k, paint.tool);
+    s.x = p.x; s.y = p.y;
+    // Re-render now and then mid-stroke so the glyphs follow the brush.
+    if (performance.now() - s.sent > 180) { s.sent = performance.now(); paint.onStroke(false); }
+  };
+  const up = (e: React.PointerEvent) => {
+    if (stroke.current?.id !== e.pointerId) return;
+    stroke.current = null;
+    paint.onStroke(true);
+  };
+
+  return (
+    <div ref={layerRef} data-mask-layer className="absolute inset-0 z-20 cursor-none touch-none overflow-hidden"
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onPointerLeave={() => setHover(null)}>
+      <div ref={tintHost} className="absolute inset-0" style={{ display: paint.overlay ? undefined : 'none' }} />
+      {hover && (
+        <div className="pointer-events-none absolute -translate-1/2 rounded-full border border-white/90 shadow-[0_0_0_1px_rgb(0_0_0/0.6)]"
+          style={{ left: `${hover.x * 100}%`, top: `${hover.y * 100}%`, width: `${(2 * radius / crop.w) * 100}%`, height: `${(2 * radius / crop.h) * 100}%` }} />
+      )}
     </div>
   );
 }

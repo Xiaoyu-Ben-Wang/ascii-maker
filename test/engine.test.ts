@@ -211,3 +211,65 @@ test('relative and local highlight modes keep a bright image mostly bare', () =>
   assert.ok(relative > 0 && relative < absolute / 4, `relative keeps to the spot (${relative})`);
   assert.ok(local > 0 && local < absolute / 4, `local keeps to the spot (${local})`);
 });
+
+test('halo dims and blurs only near glyphs', () => {
+  const w = 160, h = 80, data = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    const x = i % w, v = x < 40 ? 255 : 30 + (x % 7) * 8; // bright block on the left, textured gray elsewhere
+    data.set([v, v, v, 255], i * 4);
+  }
+  const base = { style: 'characters', unitWidth: w, cellSize: 8, threshold: 0.6, bgOpacity: 1, bgBlur: 0, bloom: 0, vignette: 0, grain: 0 } as const;
+  const at = (r: { data: Uint8ClampedArray }, x: number, y = 40) => r.data[(y * w + x) * 4];
+  const plain = render({ width: w, height: h, data }, resolveParams(base), { createCanvas: factory });
+  const dim = render({ width: w, height: h, data }, resolveParams({ ...base, haloDim: 0.8 }), { createCanvas: factory });
+  const soft = render({ width: w, height: h, data }, resolveParams({ ...base, haloBlur: 6 }), { createCanvas: factory });
+  assert.ok(at(dim, 44) < at(plain, 44) - 20, 'dimmed next to the glyphs');
+  assert.equal(at(dim, 140), at(plain, 140), 'untouched far from the glyphs');
+  assert.notEqual(at(soft, 43), at(plain, 43), 'blurred next to the glyphs');
+  assert.deepEqual([at(soft, 139), at(soft, 140), at(soft, 141)], [at(plain, 139), at(plain, 140), at(plain, 141)], 'texture kept far away');
+});
+
+test('painted mask adds and removes glyphs, mapped through its region', () => {
+  const w = 120, h = 40, data = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    const v = i % w < 60 ? 255 : 40; // bright left half, dark right half
+    data.set([v, v, v, 255], i * 4);
+  }
+  const p = resolveParams({ style: 'characters', unitWidth: w, cellSize: 8, threshold: 0.5, charset: ' .:-=+*#%@' });
+  const src = { width: w, height: h, data };
+  const lines = (text = '') => text.split('\n');
+  const plain = lines(render(src, p, { createCanvas: factory }).text);
+  assert.ok(plain[2].trimEnd().length < 15, 'only the bright half has glyphs');
+  // Mask twice the image width: left half (the image) says remove, right half says add; region picks one side.
+  const mw = 48, mh = 8, md = new Uint8Array(mw * mh);
+  for (let i = 0; i < md.length; i++) md[i] = i % mw < 24 ? 0 : 255;
+  const removed = lines(render(src, p, { createCanvas: factory, mask: { width: mw, height: mh, data: md, region: { x: 0, y: 0, w: 24, h: 8 } } }).text);
+  assert.equal(removed.join('').trim(), '', 'remove clears every glyph');
+  const added = lines(render(src, p, { createCanvas: factory, mask: { width: mw, height: mh, data: md, region: { x: 24, y: 0, w: 24, h: 8 } } }).text);
+  assert.ok(added[2].length >= 24 && /^[^ ]+$/.test(added[2]), `add fills the dark half too: ${JSON.stringify(added[2])}`);
+  const neutral = new Uint8Array(mw * mh).fill(128);
+  assert.deepEqual(lines(render(src, p, { createCanvas: factory, mask: { width: mw, height: mh, data: neutral } }).text), plain, 'gray mask changes nothing');
+});
+
+test('cli --mask clears glyphs under black and leaves transparent areas alone', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ascii-mask-'));
+  const png = (name: string, draw: (ctx: ReturnType<ReturnType<typeof createCanvas>['getContext']>) => void, w = 96, h = 32) => {
+    const c = createCanvas(w, h);
+    draw(c.getContext('2d'));
+    writeFileSync(join(dir, name), c.toBuffer('image/png'));
+    return join(dir, name);
+  };
+  const input = png('in.png', (ctx) => { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 96, 32); });
+  // Mask at a different size than the input: it is stretched over it.
+  // Left half black, right half transparent (which must count as gray, not black).
+  const mask = png('mask.png', (ctx) => { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 12, 8); }, 24, 8);
+  const run = (...extra: string[]) => {
+    execFileSync(process.execPath, ['cli/ascii-maker.ts', input, '--style', 'characters', '--unit-width', '96', '--cell-size', '8', '--threshold', '0.3',
+      '-o', join(dir, 'out.png'), '--text', join(dir, 'out.txt'), ...extra], { stdio: 'pipe' });
+    return readFileSync(join(dir, 'out.txt'), 'utf8').split('\n')[1];
+  };
+  const plain = run(), masked = run('--mask', mask);
+  assert.ok(/^\S{15,}$/.test(plain), plain);
+  assert.equal(masked.length, plain.length, 'right half untouched');
+  assert.ok(/^ {8,}\S/.test(masked), `left half cleared: ${JSON.stringify(masked)}`);
+});
