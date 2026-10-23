@@ -34,7 +34,7 @@ const FORMATS = [
   { value: 'image/webp', label: 'WebP' },
 ];
 
-interface Result { id: number; bitmap: ImageBitmap; text?: string; ms: number; draft: boolean }
+interface Result { id: number; bitmap: ImageBitmap; text?: string; ms: number }
 
 function loadStored(): { preset: string; params: Params } {
   try {
@@ -301,28 +301,28 @@ export function App() {
     return () => window.removeEventListener('paste', onPaste);
   }, [addFiles]);
 
-  // ---- main preview: a quick half-res draft while values change, then the full preview once they settle ----
+  // ---- main preview: setting changes are debounced so a slider drag renders once it settles ----
   const frame = useMemo(() => (active ? frameFor(active.width, active.height, exportSize) : null), [active, exportSize]);
   // Zoomed in, the preview renders at more of the export resolution so glyphs stay crisp.
   const previewWidth = frame && fitWidth ? Math.min(frame.width, Math.round(fitWidth * Math.min(2, devicePixelRatio) * zoom), zoom > 1 ? 4096 : 2200) : 0;
   const previewHeight = frame ? Math.max(1, Math.round((previewWidth * frame.height) / frame.width)) : 0;
   const onSize = useCallback((w: number) => setFitWidth(w), []);
 
+  const renderedParams = useRef(params);
   useEffect(() => {
     if (!active || !frame || !previewWidth || !renderer || view !== 'single') return;
     let cancelled = false;
     const id = active.id;
-    const show = (res: Rendered | null, draft: boolean) => {
-      if (!res || cancelled) { res?.bitmap.close(); return; }
-      setResult((prev) => {
-        if (prev && prev.bitmap !== res.bitmap) prev.bitmap.close();
-        return { id, bitmap: res.bitmap, text: res.text, ms: res.ms, draft };
+    const t = setTimeout(() => {
+      renderedParams.current = params;
+      renderer.preview({ sourceId: id, width: previewWidth, height: previewHeight, crop: frame.crop, targetWidth: frame.width, params }).then((res) => {
+        if (!res || cancelled) { res?.bitmap.close(); return; }
+        setResult((prev) => {
+          if (prev && prev.bitmap !== res.bitmap) prev.bitmap.close();
+          return { id, bitmap: res.bitmap, text: res.text, ms: res.ms };
+        });
       });
-    };
-    const job = (w: number, h: number) => ({ sourceId: id, width: w, height: h, crop: frame.crop, targetWidth: frame.width, params });
-    const draftW = Math.round(previewWidth / 2);
-    if (draftW >= 480) renderer.preview(job(draftW, Math.max(1, Math.round(previewHeight / 2)))).then((r) => show(r, true));
-    const t = setTimeout(() => renderer.preview(job(previewWidth, previewHeight)).then((r) => show(r, false)), draftW >= 480 ? 120 : 0);
+    }, params === renderedParams.current ? 0 : 150);
     return () => { cancelled = true; clearTimeout(t); };
   }, [active, frame, params, previewWidth, previewHeight, renderer, view, gen, maskGen]);
 
@@ -548,7 +548,7 @@ export function App() {
               <span className="h-3 w-px bg-line" />
               <span>{frame.width} × {frame.height}</span>
               <span className="h-3 w-px bg-line" />
-              <span className={cx('transition-colors duration-150', shown.draft ? 'text-faint' : 'text-muted')}>{Math.round(shown.ms)} ms</span>
+              <span>{Math.round(shown.ms)} ms</span>
             </div>
           )}
 
