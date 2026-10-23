@@ -18,6 +18,8 @@ export type WorkerResponse =
   | { type: 'error'; reqId: number; message: string };
 
 const sources = new Map<number, ImageBitmap>();
+/** Bumped when a source's pixels are replaced (a new video frame), so cached intermediates are not reused. */
+const versions = new Map<number, number>();
 const masks = new Map<number, HighlightMask>();
 const sized = new Map<string, ImageData>();
 /** Byte budget for resized sources; enough for the active image's draft + preview plus a batch of thumbnails. */
@@ -27,6 +29,7 @@ function forget(key: string) {
   const img = sized.get(key);
   if (img) { sizedBytes -= img.data.byteLength; sized.delete(key); }
 }
+const forgetSized = (id: number) => { for (const k of [...sized.keys()]) if (k.startsWith(`${id}:`)) forget(k); };
 const cache = new RenderCache(192);
 
 const keyOf = (id: number, w: number, h: number, c: Crop) => `${id}:${w}x${h}@${c.x},${c.y},${c.w},${c.h}`;
@@ -71,7 +74,12 @@ const post = (msg: WorkerResponse, transfer: Transferable[] = []) => (self as un
 self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
   const msg = e.data;
   if (msg.type === 'source') {
-    sources.get(msg.sourceId)?.close();
+    const old = sources.get(msg.sourceId);
+    if (old) {
+      old.close();
+      forgetSized(msg.sourceId);
+      versions.set(msg.sourceId, (versions.get(msg.sourceId) ?? 0) + 1);
+    }
     sources.set(msg.sourceId, msg.bitmap);
     return;
   }
@@ -84,7 +92,8 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
     sources.get(msg.sourceId)?.close();
     sources.delete(msg.sourceId);
     masks.delete(msg.sourceId);
-    for (const k of [...sized.keys()]) if (k.startsWith(`${msg.sourceId}:`)) forget(k);
+    versions.delete(msg.sourceId);
+    forgetSized(msg.sourceId);
     return;
   }
   try {
@@ -93,7 +102,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
     const img = sourceAt(msg.sourceId, msg.width, msg.height, msg.crop);
     const mask = maskFor(msg.sourceId, msg.crop);
     if (msg.type === 'render') {
-      const sourceKey = `${msg.sourceId}:${msg.crop.x},${msg.crop.y},${msg.crop.w},${msg.crop.h}`;
+      const sourceKey = `${msg.sourceId}.${versions.get(msg.sourceId) ?? 0}:${msg.crop.x},${msg.crop.y},${msg.crop.w},${msg.crop.h}`;
       const r = render(img, msg.params, { createCanvas, targetWidth: msg.targetWidth, cache, sourceKey, mask });
       const bitmap = toCanvas(r.data, r.width, r.height).transferToImageBitmap();
       post({ type: 'rendered', reqId: msg.reqId, bitmap, text: r.text, ms: performance.now() - t0 }, [bitmap]);

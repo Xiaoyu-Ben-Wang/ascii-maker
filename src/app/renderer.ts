@@ -1,4 +1,5 @@
 import type { HighlightMask, Params } from '../engine/index.ts';
+import type { VideoJob, VideoWorkerMessage } from '../video-worker.ts';
 import type { Crop, WorkerRequest, WorkerResponse } from '../worker.ts';
 
 export type Rendered = Extract<WorkerResponse, { type: 'rendered' }>;
@@ -6,6 +7,9 @@ type Exported = Extract<WorkerResponse, { type: 'exported' }>;
 type Job = Extract<WorkerRequest, { type: 'render' }>;
 type ExportJob = Extract<WorkerRequest, { type: 'export' }>;
 export type PreviewArgs = Omit<Job, 'type' | 'reqId'>;
+export type VideoExportArgs = Omit<VideoJob, 'mask'> & { sourceId: number };
+export interface VideoProgress { progress: number; frame: number }
+export class CanceledError extends Error { constructor() { super('canceled'); } }
 
 /** Long edge of the copies the thumbnail workers render from. */
 const THUMB_SOURCE = 1280;
@@ -133,7 +137,8 @@ export class Renderer {
       if (!full && id % this.pool.length !== index) continue;
       try {
         const copy = full ? await createImageBitmap(bitmap) : await this.thumbCopy(id, bitmap);
-        if (this.sources.has(id)) lane.post({ type: 'source', sourceId: id, bitmap: copy }, [copy]);
+        // Skip a source replaced meanwhile (a new video frame); its own addSource posted the newer one.
+        if (this.sources.get(id) === bitmap) lane.post({ type: 'source', sourceId: id, bitmap: copy }, [copy]);
         else copy.close();
         const mask = this.masks.get(id);
         if (mask) lane.post({ type: 'mask', sourceId: id, mask });
@@ -200,6 +205,27 @@ export class Renderer {
     const r = await this.main.send({ type: 'export', ...args });
     if (r.type === 'error') throw new Error(r.message);
     return r as Exported;
+  }
+
+  /** Renders and encodes every frame in a worker of its own; aborting the signal stops it and rejects with CanceledError. */
+  exportVideo({ sourceId, ...job }: VideoExportArgs, onProgress: (p: VideoProgress) => void, signal?: AbortSignal) {
+    const m = this.masks.get(sourceId), src = this.sources.get(sourceId);
+    const mask = m && src ? { ...m, region: { x: job.crop.x * (m.width / src.width), y: job.crop.y * (m.height / src.height), w: job.crop.w * (m.width / src.width), h: job.crop.h * (m.height / src.height) } } : undefined;
+    return new Promise<{ blob: Blob; frames: number; ms: number }>((resolve, reject) => {
+      if (signal?.aborted) return reject(new CanceledError());
+      const worker = new Worker(new URL('../video-worker.ts', import.meta.url), { type: 'module' });
+      const stop = () => { worker.terminate(); signal?.removeEventListener('abort', cancel); };
+      const cancel = () => { stop(); reject(new CanceledError()); };
+      signal?.addEventListener('abort', cancel);
+      worker.onmessage = (e: MessageEvent<VideoWorkerMessage>) => {
+        const d = e.data;
+        if (d.type === 'progress') onProgress(d);
+        else if (d.type === 'done') { stop(); resolve(d); }
+        else { stop(); reject(new Error(d.message)); }
+      };
+      worker.onerror = (e) => { e.preventDefault(); stop(); reject(new Error(e.message || 'video export crashed')); };
+      worker.postMessage({ ...job, mask } satisfies VideoJob);
+    });
   }
 }
 

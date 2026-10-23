@@ -7,6 +7,8 @@ import { Button, cx } from './ui.tsx';
 
 interface Props {
   original: ImageBitmap | null;
+  /** Identifies the image shown; zoom resets when it changes (a new video frame keeps the same key). */
+  viewKey?: unknown;
   frame: Frame | null;
   result: ImageBitmap | null;
   /** 0..1 position of the before/after divider, or null when not comparing. */
@@ -30,7 +32,7 @@ const MAX_ZOOM = 8;
 type View = { z: number; x: number; y: number };
 const NO_ZOOM: View = { z: 1, x: 0, y: 0 };
 
-export function Stage({ original, frame, result, split, onSplit, holdOriginal, onOpen, onSamples, onExample, pick, paint, children }: Props) {
+export function Stage({ original, viewKey, frame, result, split, onSplit, holdOriginal, onOpen, onSamples, onExample, pick, paint, children }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const origRef = useRef<HTMLCanvasElement>(null);
   const resRef = useRef<HTMLCanvasElement>(null);
@@ -43,7 +45,8 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
   fitRef.current = fit;
 
   // A new image (or size) starts unzoomed.
-  useEffect(() => setView(NO_ZOOM), [original, frame]);
+  const key = viewKey ?? original;
+  useEffect(() => setView(NO_ZOOM), [key, frame]);
 
 
   // Pinch, pan, wheel and double-tap zoom. Touch events (not pointer events) because iOS Safari only lets a page

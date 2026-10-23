@@ -26,6 +26,7 @@
     "@napi-rs/canvas": "1.0.10",
     "fflate": "0.8.3",
     "lucide-react": "1.52.0",
+    "mediabunny": "1.61.3",
     "radix-ui": "1.7.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"

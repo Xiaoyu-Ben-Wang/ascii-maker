@@ -1,5 +1,5 @@
 import {
-  Braces, BookmarkPlus, Brush, ClipboardPaste, Columns2, Copy, Download, ImageUp, LayoutGrid, Redo2, RotateCcw, Settings2, Square, Terminal, Trash2, Undo2,
+  Braces, BookmarkPlus, Brush, ClipboardPaste, Columns2, Copy, Download, ImageUp, LayoutGrid, Redo2, RotateCcw, Settings2, Square, Terminal, Trash2, Undo2, X,
 } from 'lucide-react';
 import { Tooltip } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -8,10 +8,12 @@ import { Filmstrip, Gallery, type Img } from './Gallery.tsx';
 import { Inspector } from './Inspector.tsx';
 import { PaintMask, type MaskTool } from './mask.ts';
 import { MaskBar } from './MaskBar.tsx';
-import { Renderer, type Rendered } from './renderer.ts';
+import { CanceledError, Renderer, type VideoProgress } from './renderer.ts';
 import { SAMPLE_SOURCES, loadSample, type SampleSource } from './sample.ts';
+import { Scrubber } from './Scrubber.tsx';
 import { Stage } from './Stage.tsx';
-import { Button, Kbd, Popover, Row, Select, SliderField, TextField, Tip, cx } from './ui.tsx';
+import { Button, Kbd, Popover, Progress, Row, Select, SliderField, TextField, Tip, cx } from './ui.tsx';
+import { VIDEO_FORMATS, VideoSource, encodableFormats, evenSize, isVideo, type VideoFormat } from './video.ts';
 import { zip } from './zip.ts';
 
 const STORE_KEY = 'ascii-maker:v2';
@@ -59,6 +61,15 @@ function download(blob: Blob, name: string) {
 }
 
 const ext = (mime: string) => mime.split('/')[1].replace('jpeg', 'jpg');
+/** Rejects with CanceledError as soon as `signal` aborts, without waiting for `p`. */
+function abortable<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return p;
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new CanceledError());
+    signal.addEventListener('abort', () => reject(new CanceledError()), { once: true });
+    p.then(resolve, reject);
+  });
+}
 const typing = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
 
 export function App() {
@@ -77,7 +88,11 @@ export function App() {
   const [format, setFormat] = useState('image/png');
   const [quality, setQuality] = useState(92);
   const [pngLevel, setPngLevel] = useState(5);
-  const [exporting, setExporting] = useState<string | null>(null);
+  const [videoFormat, setVideoFormat] = useState<VideoFormat>('mp4');
+  const [encodable, setEncodable] = useState<VideoFormat[] | null>(null);
+  /** The running export: a label and progress 0..1 (null while it can't be measured). */
+  const [job, setJob] = useState<{ label: string; value: number | null } | null>(null);
+  const abort = useRef<AbortController | null>(null);
   const [split, setSplit] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
   const [masking, setMasking] = useState(false);
@@ -228,21 +243,33 @@ export function App() {
   const edits = useMemo(() => (Object.keys(DEFAULTS) as (keyof Params)[]).filter((k) => params[k] !== base[k]).length, [params, base]);
 
   // ---- image set ----
-  const addBitmap = useCallback(async (bitmap: ImageBitmap, name: string) => {
+  const addBitmap = useCallback(async (bitmap: ImageBitmap, name: string, video?: VideoSource) => {
     const id = nextId.current++;
     if (renderer) await renderer.addSource(id, bitmap);
-    setImages((list) => [...list, { id, bitmap, name, width: bitmap.width, height: bitmap.height }]);
+    setImages((list) => [...list, { id, bitmap, name, width: bitmap.width, height: bitmap.height, video, time: video ? 0 : undefined }]);
     setActiveId(id);
   }, [renderer]);
   const addFiles = useCallback(async (files: Iterable<File>, fallbackName = 'image') => {
     let failed = 0;
     for (const f of files) {
+      const name = f.name.replace(/\.[^.]+$/, '') || fallbackName;
+      if (isVideo(f)) {
+        let video: VideoSource | null = null;
+        try {
+          video = await VideoSource.open(f);
+          await addBitmap(await video.frameAt(0), name, video);
+        } catch (e) {
+          video?.dispose();
+          notify(`Could not open ${f.name}: ${e instanceof Error ? e.message : e}`);
+        }
+        continue;
+      }
       if (!f.type.startsWith('image/')) { failed++; continue; }
       try {
-        await addBitmap(await createImageBitmap(f), f.name.replace(/\.[^.]+$/, '') || fallbackName);
+        await addBitmap(await createImageBitmap(f), name);
       } catch { failed++; }
     }
-    if (failed) notify(`${failed} file${failed > 1 ? 's' : ''} could not be read as an image`);
+    if (failed) notify(`${failed} file${failed > 1 ? 's' : ''} could not be read as an image or video`);
   }, [addBitmap, notify]);
   const addSamples = useCallback(async () => {
     try {
@@ -269,7 +296,7 @@ export function App() {
     setImages((list) => {
       const img = list.find((i) => i.id === id);
       // Close after the canvases that draw it have unmounted.
-      if (img) setTimeout(() => img.bitmap.close(), 1000);
+      if (img) setTimeout(() => { img.bitmap.close(); img.video?.dispose(); }, 1000);
       const rest = list.filter((i) => i.id !== id);
       setActiveId((cur) => (cur === id ? rest[rest.length - 1]?.id ?? null : cur));
       return rest;
@@ -294,15 +321,46 @@ export function App() {
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       if (typing(e.target)) return;
-      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
+      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/') || isVideo(f));
       if (files.length) { e.preventDefault(); addFiles(files, 'pasted'); }
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
   }, [addFiles]);
 
+  // ---- video scrubbing: the scrubber moves at once, the frame under it is decoded and rendered once it settles ----
+  const [scrub, setScrub] = useState<{ id: number; time: number } | null>(null);
+  /** Frame swaps commit in order, so a slow decode never lands after a newer one. */
+  const swaps = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    if (!scrub || !renderer) return;
+    const img = imagesRef.current.find((i) => i.id === scrub.id);
+    // No early return when time matches: an older swap still in flight may land a different frame first.
+    if (!img?.video) return;
+    const { id, time } = scrub;
+    const video = img.video;
+    let cancelled = false;
+    const t = setTimeout(() => {
+      swaps.current = swaps.current.then(async () => {
+        if (cancelled) return;
+        const bitmap = await video.frameAt(time);
+        const cur = imagesRef.current.find((i) => i.id === id);
+        if (cancelled || !cur) { bitmap.close(); return; }
+        await renderer.addSource(id, bitmap);
+        const now = imagesRef.current.find((i) => i.id === id);
+        // A newer scrub (queued behind this one) sends its own frame; a removed video needs none.
+        if (cancelled || !now) { bitmap.close(); return; }
+        setTimeout(() => now.bitmap.close(), 1000); // once the canvases drawing it have moved on
+        setImages((list) => list.map((i) => (i.id === id ? { ...i, bitmap, time } : i)));
+      }).catch((e) => notify(`Could not decode that frame: ${e instanceof Error ? e.message : e}`));
+    }, 100);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [scrub, renderer, notify]);
+  const scrubTime = active?.video ? (scrub?.id === active.id ? scrub.time : active.time ?? 0) : 0;
+
   // ---- main preview: setting changes are debounced so a slider drag renders once it settles ----
-  const frame = useMemo(() => (active ? frameFor(active.width, active.height, exportSize) : null), [active, exportSize]);
+  const activeW = active?.width ?? 0, activeH = active?.height ?? 0;
+  const frame = useMemo(() => (activeW ? frameFor(activeW, activeH, exportSize) : null), [activeW, activeH, exportSize]);
   // Always the export resolution, so zooming never changes how the render looks.
   const previewWidth = frame?.width ?? 0;
   const previewHeight = frame?.height ?? 0;
@@ -334,51 +392,91 @@ export function App() {
   const shown = result && result.id === activeId ? result : null;
 
   // ---- export ----
-  const exportOne = useCallback(async (img: Img, p: Params) => {
+  // Which video formats this browser can encode, checked for the active (or first) video.
+  const sampleVideo = active?.video ? active : images.find((i) => i.video);
+  const sampleW = sampleVideo?.width ?? 0, sampleH = sampleVideo?.height ?? 0;
+  useEffect(() => {
+    if (!sampleW) return;
+    let live = true;
+    const f = frameFor(sampleW, sampleH, exportSize);
+    encodableFormats(f.width, f.height).then((ok) => {
+      if (!live) return;
+      setEncodable(ok);
+      setVideoFormat((cur) => (ok.includes(cur) || !ok.length ? cur : ok[0]));
+    });
+    return () => { live = false; };
+  }, [sampleW, sampleH, exportSize]);
+
+  /** Renders one image, or every frame of a video, with `p` at the export size. */
+  const exportOne = useCallback(async (img: Img, p: Params, onFrame?: (v: VideoProgress, total: number) => void, signal?: AbortSignal) => {
     const f = frameFor(img.width, img.height, exportSize);
-    const r = await renderer!.export({ sourceId: img.id, width: f.width, height: f.height, crop: f.crop, params: p, mime: format, quality: quality / 100, pngLevel });
+    if (img.video) {
+      const { width, height } = evenSize(f.width, f.height);
+      const ok = await encodableFormats(width, height);
+      const fmt = ok.includes(videoFormat) ? videoFormat : ok[0];
+      if (!fmt) throw new Error('this browser cannot encode video');
+      const total = Math.max(1, Math.round(img.video.info.duration * img.video.info.fps));
+      const r = await renderer!.exportVideo({ sourceId: img.id, file: img.video.file, width, height, crop: f.crop, params: p, format: fmt, audio: true },
+        (v) => onFrame?.(v, Math.max(total, v.frame)), signal);
+      return { blob: r.blob, width, height, ms: r.ms, name: `${img.name}-${p.style}.${fmt}` };
+    }
+    const r = await abortable(renderer!.export({ sourceId: img.id, width: f.width, height: f.height, crop: f.crop, params: p, mime: format, quality: quality / 100, pngLevel }), signal);
     return { ...r, name: `${img.name}-${p.style}.${ext(format)}` };
-  }, [renderer, exportSize, format, quality, pngLevel]);
+  }, [renderer, exportSize, format, quality, pngLevel, videoFormat]);
+
+  const startJob = useCallback((label: string, value: number | null) => {
+    const ac = new AbortController();
+    abort.current = ac;
+    setJob({ label, value });
+    return ac.signal;
+  }, []);
+  const endJob = useCallback((e?: unknown) => {
+    if (e instanceof CanceledError) notify('Export canceled');
+    else if (e) notify(`Export failed: ${e instanceof Error ? e.message : e}`);
+    abort.current = null;
+    setJob(null);
+  }, [notify]);
 
   const doExport = useCallback(async () => {
-    if (!active || !renderer || exporting) return;
-    setExporting('Rendering…');
+    if (!active || !renderer || abort.current) return;
+    const signal = startJob(active.video ? 'Starting…' : 'Rendering…', active.video ? 0 : null);
     try {
-      const r = await exportOne(active, paramsRef.current);
+      const r = await exportOne(active, paramsRef.current, (v, total) => setJob({ label: `Frame ${v.frame} / ${total}`, value: v.progress }), signal);
       download(r.blob, r.name);
       notify(`Exported ${r.width}×${r.height} in ${(r.ms / 1000).toFixed(1)}s`);
+      endJob();
     } catch (e) {
-      notify(`Export failed: ${e instanceof Error ? e.message : e}`);
-    } finally {
-      setExporting(null);
+      endJob(e);
     }
-  }, [active, renderer, exporting, exportOne, notify]);
+  }, [active, renderer, exportOne, notify, startJob, endJob]);
 
   const exportAll = useCallback(async () => {
     const list = imagesRef.current;
-    if (!list.length || !renderer || exporting) return;
+    if (!list.length || !renderer || abort.current) return;
     const t0 = performance.now();
     const p = paramsRef.current; // one look for the whole batch, even if sliders move meanwhile
+    const n = list.length;
+    const signal = startJob(`1 / ${n}`, 0);
     try {
       const files: { name: string; blob: Blob }[] = [];
       const used = new Set<string>();
       for (const [i, img] of list.entries()) {
         if (!imagesRef.current.some((x) => x.id === img.id)) continue; // removed mid-export
-        setExporting(`${i + 1} / ${list.length}`);
-        const r = await exportOne(img, p);
+        setJob({ label: `${i + 1} / ${n}`, value: i / n });
+        const r = await exportOne(img, p, (v, total) => setJob({ label: `${i + 1} / ${n} · frame ${v.frame} / ${total}`, value: (i + v.progress) / n }), signal);
         let name = r.name;
-        for (let n = 2; used.has(name); n++) name = r.name.replace(/(\.\w+)$/, `-${n}$1`);
+        for (let k = 2; used.has(name); k++) name = r.name.replace(/(\.\w+)$/, `-${k}$1`);
         used.add(name);
         files.push({ name, blob: r.blob });
       }
-      download(await zip(files), `ascii-maker-${p.style}.zip`);
-      notify(`Exported ${files.length} images in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+      setJob({ label: 'Zipping…', value: 1 });
+      download(await abortable(zip(files), signal), `ascii-maker-${p.style}.zip`);
+      notify(`Exported ${files.length} files in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+      endJob();
     } catch (e) {
-      notify(`Export failed: ${e instanceof Error ? e.message : e}`);
-    } finally {
-      setExporting(null);
+      endJob(e);
     }
-  }, [renderer, exporting, exportOne, notify]);
+  }, [renderer, exportOne, notify, startJob, endJob]);
 
   const copy = useCallback(async (text: string, what: string) => {
     try { await navigator.clipboard.writeText(text); notify(`Copied ${what}`); } catch { notify('Clipboard unavailable'); }
@@ -391,10 +489,10 @@ export function App() {
       typeof v === 'boolean' ? (v ? `--${kebab(k)}` : `--no-${kebab(k)}`) : `--${kebab(k)}=${q(v)}`);
     const size = exportSize === 'source' ? [] : [`--size ${exportSize}`];
     const io = images.length > 1
-      ? [...images.map((i) => `${i.name}.jpg`), '-o', 'out/']
-      : [`${active?.name ?? 'input'}.jpg`, '-o', `${active?.name ?? 'input'}-${params.style}.png`];
+      ? [...images.map((i) => i.video?.file.name ?? `${i.name}.jpg`), '-o', 'out/']
+      : [active?.video?.file.name ?? `${active?.name ?? 'input'}.jpg`, '-o', `${active?.name ?? 'input'}-${params.style}.${active?.video ? videoFormat : 'png'}`];
     return ['node cli/ascii-maker.ts', ...io, ...size, ...flags].join(' ');
-  }, [params, images, active, exportSize]);
+  }, [params, images, active, exportSize, videoFormat]);
 
   // ---- keyboard ----
   const step = useCallback((d: number) => {
@@ -452,7 +550,7 @@ export function App() {
   return (
     <Tooltip.Provider delayDuration={400} skipDelayDuration={300}>
       <div className="grid h-full grid-cols-[minmax(0,1fr)] max-md:h-auto md:grid-cols-[minmax(0,1fr)_320px]">
-        <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files) addFiles([...e.target.files]); e.target.value = ''; }} />
+        <input ref={fileInput} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { if (e.target.files) addFiles([...e.target.files]); e.target.value = ''; }} />
 
         <main
           className="relative min-h-0 min-w-0 overflow-hidden max-md:h-[64svh] max-md:min-h-[420px]"
@@ -466,6 +564,7 @@ export function App() {
           ) : (
             <Stage
               original={active?.bitmap ?? null}
+              viewKey={active?.id}
               frame={frame}
               result={shown?.bitmap ?? null}
               split={split}
@@ -539,13 +638,24 @@ export function App() {
 
           {!grid && images.length > 1 && <Filmstrip images={images} activeId={activeId} onSelect={setActiveId} onRemove={removeImage} onAdd={() => fileInput.current?.click()} />}
 
-          {!grid && active && shown && frame && (
-            <div className="glass absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-line px-3 py-1 font-mono text-[11px] text-muted tabular-nums">
-              <span className="max-w-40 truncate text-fg">{active.name}</span>
-              <span className="h-3 w-px bg-line" />
-              <span>{frame.width} × {frame.height}</span>
-              <span className="h-3 w-px bg-line" />
-              <span>{Math.round(shown.ms)} ms</span>
+          {!grid && active && frame && (shown || active.video) && (
+            <div className={cx('glass absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-line px-3 py-1 font-mono text-[11px] text-muted tabular-nums',
+              active.video && 'w-[min(720px,calc(100%-1.5rem))]')}>
+              <span className="max-w-40 shrink-0 truncate text-fg max-sm:max-w-24">{active.name}</span>
+              <span className="h-3 w-px shrink-0 bg-line" />
+              {active.video && (
+                <>
+                  <Scrubber time={scrubTime} duration={active.video.info.duration} fps={active.video.info.fps} onChange={(t) => setScrub({ id: active.id, time: t })} />
+                  <span className="h-3 w-px shrink-0 bg-line max-sm:hidden" />
+                </>
+              )}
+              <span className={cx('shrink-0', active.video && 'max-sm:hidden')}>{frame.width} × {frame.height}</span>
+              {shown && (
+                <>
+                  <span className="h-3 w-px shrink-0 bg-line max-sm:hidden" />
+                  <span className="shrink-0 max-sm:hidden">{Math.round(shown.ms)} ms</span>
+                </>
+              )}
             </div>
           )}
 
@@ -596,13 +706,20 @@ export function App() {
             <Inspector params={params} base={base} set={set} resetKey={presetEpoch} picking={picking && !grid} onPicking={(v) => { setPicking(v); if (v) setView('single'); }} />
           </div>
           <div className="flex gap-2 border-t border-line bg-surface p-3 max-md:sticky max-md:bottom-0 max-md:z-20">
-            {grid ? (
-              <Button variant="primary" className="flex-1" disabled={!images.length || !!exporting} onClick={exportAll}>
-                <Download className="size-4" />{exporting ?? `Export all ${images.length}`}
+            {job ? (
+              <>
+                <Progress value={job.value} label={job.label} />
+                <Tip label="Cancel export" side="top">
+                  <Button variant="solid" size="icon" className="size-9" aria-label="Cancel export" onClick={() => abort.current?.abort()}><X className="size-4" /></Button>
+                </Tip>
+              </>
+            ) : grid ? (
+              <Button variant="primary" className="flex-1" disabled={!images.length} onClick={exportAll}>
+                <Download className="size-4" />Export all {images.length}
               </Button>
             ) : (
-              <Button variant="primary" className="flex-1" disabled={!active || !!exporting} onClick={doExport}>
-                <Download className="size-4" />{exporting ?? 'Export'}
+              <Button variant="primary" className="flex-1" disabled={!active} onClick={doExport}>
+                <Download className="size-4" />{active?.video ? 'Export video' : 'Export'}
               </Button>
             )}
             <Popover trigger={<Button variant="solid" size="icon" aria-label="Export options"><Settings2 className="size-4" /></Button>}>
@@ -611,10 +728,19 @@ export function App() {
               {format === 'image/png'
                 ? <SliderField label="Compression" hint="Lossless either way: higher is smaller but slower to export. JPEG or WebP are far smaller." value={pngLevel} min={0} max={9} step={1} onChange={setPngLevel} />
                 : <SliderField label="Quality" hint="Lower makes smaller files with more compression artifacts." value={quality} min={10} max={100} step={1} onChange={setQuality} />}
+              {sampleVideo && (
+                <Row label="Video" hint="Container and codec for exported videos. The source audio is kept.">
+                  <Select label="Video format" value={videoFormat} onChange={setVideoFormat}
+                    options={VIDEO_FORMATS.map((f) => {
+                      const off = !!encodable && !encodable.includes(f.value);
+                      return { value: f.value, label: f.label, disabled: off, hint: off ? 'This browser cannot encode it' : undefined };
+                    })} />
+                </Row>
+              )}
               {frame && <div className="pt-1 pb-2 text-right font-mono text-[11px] text-faint">{frame.width} × {frame.height}px</div>}
               <div className="mt-1 grid gap-1 border-t border-line pt-2">
                 {images.length > 1 && (
-                  <Button size="sm" className="justify-start" disabled={!!exporting} onClick={exportAll}>
+                  <Button size="sm" className="justify-start" disabled={!!job} onClick={exportAll}>
                     <Download className="size-3.5" />Export all (.zip)
                   </Button>
                 )}

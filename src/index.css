@@ -64,6 +64,7 @@
 
 @keyframes pop-in { from { opacity: 0; transform: scale(0.96); } }
 @keyframes pop-out { to { opacity: 0; transform: scale(0.97); } }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 
 @media (prefers-reduced-motion: reduce) {
   .pop, .pop[data-state="closed"] { animation-duration: 1ms; }

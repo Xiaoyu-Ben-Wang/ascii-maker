@@ -154,9 +154,9 @@ export function Row({ label, hint, modified, onReset, children }: { label: strin
 }
 
 export function Select<V extends string>({ value, options, onChange, label, className }: {
-  value: V; options: readonly V[] | readonly { value: V; label: string; hint?: string }[]; onChange: (v: V) => void; label: string; className?: string;
+  value: V; options: readonly V[] | readonly { value: V; label: string; hint?: string; disabled?: boolean }[]; onChange: (v: V) => void; label: string; className?: string;
 }) {
-  const opts = options.map((o) => (typeof o === 'string' ? { value: o, label: o, hint: undefined } : o));
+  const opts = options.map((o) => (typeof o === 'string' ? { value: o, label: o, hint: undefined, disabled: false } : o));
   return (
     <S.Root value={value} onValueChange={(v) => onChange(v as V)}>
       <S.Trigger aria-label={label} className={cx('press flex h-7 min-w-0 items-center justify-between gap-2 rounded-md border border-line bg-white/[0.04] px-2.5 text-[12px] text-fg outline-none hover:bg-white/[0.07] focus-visible:ring-2 focus-visible:ring-accent/40', className ?? 'w-40')}>
@@ -167,7 +167,7 @@ export function Select<V extends string>({ value, options, onChange, label, clas
         <S.Content position="popper" sideOffset={4} className="pop z-50 max-h-[min(380px,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-line-strong bg-raised p-1 shadow-2xl">
           <S.Viewport>
             {opts.map((o) => (
-              <S.Item key={o.value} value={o.value} className="relative flex cursor-default items-center rounded-md py-1.5 pr-2 pl-7 text-[12px] text-fg outline-none select-none data-[highlighted]:bg-white/[0.07]">
+              <S.Item key={o.value} value={o.value} disabled={o.disabled} className="relative flex cursor-default items-center rounded-md py-1.5 pr-2 pl-7 text-[12px] text-fg outline-none select-none data-[disabled]:opacity-40 data-[highlighted]:bg-white/[0.07]">
                 <S.ItemIndicator className="absolute left-2"><Check className="size-3.5 text-accent" /></S.ItemIndicator>
                 <div>
                   <S.ItemText>{o.label}</S.ItemText>
@@ -179,6 +179,21 @@ export function Select<V extends string>({ value, options, onChange, label, clas
         </S.Content>
       </S.Portal>
     </S.Root>
+  );
+}
+
+/** Determinate progress bar (`value` 0..1), or an indeterminate one when `value` is null. */
+export function Progress({ value, label }: { value: number | null; label: string }) {
+  return (
+    <div className="relative h-9 min-w-0 flex-1 overflow-hidden rounded-lg border border-line bg-white/[0.04]" role="progressbar" aria-label={label}
+      aria-valuemin={0} aria-valuemax={100} aria-valuenow={value === null ? undefined : Math.round(value * 100)}>
+      <div className={cx('absolute inset-y-0 left-0 bg-accent/25', value === null ? 'w-1/3 animate-[slide_1.2s_ease-in-out_infinite]' : 'transition-[width] duration-200')}
+        style={value === null ? undefined : { width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />
+      <div className="relative flex h-full items-center justify-between gap-2 px-3 font-mono text-[11px] text-fg tabular-nums">
+        <span className="truncate">{label}</span>
+        {value !== null && <span className="shrink-0">{Math.floor(value * 100)}%</span>}
+      </div>
+    </div>
   );
 }
 

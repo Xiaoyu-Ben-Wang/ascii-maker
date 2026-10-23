@@ -1,10 +1,12 @@
-import { Plus, X } from 'lucide-react';
+import { Film, Plus, X } from 'lucide-react';
 import { memo, useEffect, useRef, useState } from 'react';
 import { frameFor, type Params, type SizeName } from '../engine/index.ts';
 import type { Renderer } from './renderer.ts';
 import { cx } from './ui.tsx';
+import { formatTime, type VideoSource } from './video.ts';
 
-export interface Img { id: number; bitmap: ImageBitmap; name: string; width: number; height: number }
+/** An image in the set. For a video, `bitmap` is the frame at `time` (seconds). */
+export interface Img { id: number; bitmap: ImageBitmap; name: string; width: number; height: number; video?: VideoSource; time?: number }
 
 const THUMB_W = 720;
 
@@ -18,7 +20,7 @@ const Card = memo(function Card({ img, params, size, renderer, gen, active, onOp
   const [cssWidth, setCssWidth] = useState(0);
   const frame = frameFor(img.width, img.height, size);
   /** What is currently drawn, so scrolling back into view doesn't re-render an unchanged card. */
-  const drawn = useRef<{ params: Params; size: SizeName; width: number; gen: number } | null>(null);
+  const drawn = useRef<{ params: Params; size: SizeName; width: number; gen: number; bitmap: ImageBitmap } | null>(null);
 
   // Only render cards on (or near) screen, at the size they are shown.
   useEffect(() => {
@@ -36,14 +38,14 @@ const Card = memo(function Card({ img, params, size, renderer, gen, active, onOp
     const frame = frameFor(img.width, img.height, size);
     const width = Math.min(THUMB_W, frame.width, Math.round(cssWidth * Math.min(2, devicePixelRatio)));
     const d = drawn.current;
-    if (d && d.params === params && d.size === size && d.width === width && d.gen === gen) return;
+    if (d && d.params === params && d.size === size && d.width === width && d.gen === gen && d.bitmap === img.bitmap) return;
     const height = Math.max(1, Math.round((width * frame.height) / frame.width));
     const t = setTimeout(() => {
       renderer.thumb({ sourceId: img.id, width, height, crop: frame.crop, targetWidth: frame.width, params }).then((r) => {
         if (!r) return;
         if (cancelled || !ref.current) { r.bitmap.close(); return; }
         ref.current.getContext('bitmaprenderer')!.transferFromImageBitmap(r.bitmap);
-        drawn.current = { params, size, width, gen };
+        drawn.current = { params, size, width, gen, bitmap: img.bitmap };
         setMs(r.ms);
       });
     }, 100);
@@ -56,8 +58,11 @@ const Card = memo(function Card({ img, params, size, renderer, gen, active, onOp
         <canvas ref={ref} className="block w-full bg-ink" style={{ aspectRatio: `${frame.width} / ${frame.height}` }} />
       </button>
       <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <span className="truncate text-[12px] text-fg">{img.name}</span>
-        <span className="shrink-0 font-mono text-[10px] text-faint tabular-nums">{frame.width}×{frame.height}{ms !== null && ` · ${Math.round(ms)}ms`}</span>
+        <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg">
+          {img.video && <Film className="size-3.5 shrink-0 text-muted" aria-label="Video" />}
+          <span className="truncate">{img.name}</span>
+        </span>
+        <span className="shrink-0 font-mono text-[10px] text-faint tabular-nums">{img.video && `${formatTime(img.video.info.duration)} · `}{frame.width}×{frame.height}{ms !== null && ` · ${Math.round(ms)}ms`}</span>
       </div>
       <button
         onClick={onRemove}
@@ -114,10 +119,11 @@ export function Filmstrip({ images, activeId, onSelect, onRemove, onAdd }: {
             onClick={() => onSelect(img.id)}
             aria-label={img.name}
             title={img.name}
-            className={cx('press block overflow-hidden rounded-md outline-none ring-2 ring-offset-0 transition-[box-shadow,opacity] duration-150 focus-visible:ring-accent/60',
+            className={cx('press relative block overflow-hidden rounded-md outline-none ring-2 ring-offset-0 transition-[box-shadow,opacity] duration-150 focus-visible:ring-accent/60',
               img.id === activeId ? 'ring-accent' : 'opacity-60 ring-transparent hover:opacity-100')}
           >
             <SourceThumb bitmap={img.bitmap} />
+            {img.video && <Film className="absolute bottom-1 left-1 size-3 text-white drop-shadow" aria-hidden />}
           </button>
           <button
             onClick={() => onRemove(img.id)}
