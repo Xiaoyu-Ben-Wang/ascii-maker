@@ -59,7 +59,7 @@ A 30 s 1080p clip (900 frames) takes about 32 s for `soft-ascii` and 34 s for `d
 
 | Style | What it draws |
 | --- | --- |
-| `characters` | Character ramp (`--charset`) by brightness. Pick a ready-made set by name (`standard`, `classic`, `detailed`, `letters`, `blocks`, `braille`, `dots`, `binary`; see `--list`) or pass your own characters, dark to bright |
+| `characters` | Character ramp (`--charset`) by brightness. Pick a ready-made set by name (`standard`, `classic`, `mixed`, `detailed`, `letters`, `blocks`, `braille`, `dots`, `binary`; see `--list`) or pass your own characters, dark to bright |
 | `cross` | `+` on bright cells, small `×` on faint ones, sized by brightness |
 | `diagonal` | `/` `\` strokes. `edge` follows contours, `forward` / `backward` hatch in parallel, `mixed` is random |
 | `dots` | Halftone circles |

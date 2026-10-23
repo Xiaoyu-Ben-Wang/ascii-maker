@@ -33,6 +33,7 @@ export type ColorMode = (typeof COLOR_MODES)[number];
 export const CHARSETS: Record<string, { chars: string; description: string }> = {
   standard: { chars: ' .:-=+xX0S8#@', description: 'Balanced default ramp' },
   classic: { chars: ' .:-=+*#%@', description: 'The 10-step ramp from classic ASCII art' },
+  mixed: { chars: ' .:-=+*xX0S8#%@', description: 'Standard and classic merged, keeping both orders' },
   detailed: {
     chars: ' .\'`^",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$',
     description: '70 characters, the finest tonal steps',
@@ -131,7 +132,7 @@ export const DEFAULTS: Params = {
 
   bgBlur: 6,
   glyphBlur: 0,
-  bgOpacity: 0.7,
+  bgOpacity: 0.85,
   bgColor: '#000000',
 
   ditherAlgo: 'floyd-steinberg',
