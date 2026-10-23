@@ -138,12 +138,31 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
       if (gesture && !pinch) apply(zoomAt(gesture, g.scale, g.clientX, g.clientY));
     };
     const gestureEnd = (e: Event) => { e.preventDefault(); gesture = null; };
+    // Browsers don't say whether a wheel event came from a mouse or a trackpad, so classify each burst of events by
+    // its first one: mouse notches report lines/pages or a wheelDelta in steps of 120, trackpads report small pixel
+    // deltas, often with some horizontal movement. The burst keeps its kind so a trackpad's momentum tail can't flip it.
+    const burst = { t: 0, mouse: false };
+    const isMouseWheel = (e: WheelEvent) => {
+      const now = performance.now();
+      if (now - burst.t > 200) {
+        const wd = (e as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY;
+        burst.mouse = e.deltaMode !== 0 || (e.deltaX === 0 && (
+          (!!wd && wd % 120 === 0) || (Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50)));
+      } else if (e.deltaX !== 0) burst.mouse = false;
+      burst.t = now;
+      return burst.mouse;
+    };
     const wheel = (e: WheelEvent) => {
       const v = viewRef.current;
+      const mouse = isMouseWheel(e);
       if (e.ctrlKey || e.metaKey) {
         // Trackpad pinch (reported as ctrl+wheel) or ctrl+scroll.
         e.preventDefault();
         apply(zoomAt(v, Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.01)), e.clientX, e.clientY));
+      } else if (mouse) {
+        e.preventDefault();
+        const px = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1);
+        apply(zoomAt(v, Math.exp(-Math.max(-200, Math.min(200, px)) * 0.002), e.clientX, e.clientY));
       } else if (v.z > 1) {
         e.preventDefault();
         apply({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY });
