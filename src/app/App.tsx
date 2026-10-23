@@ -78,7 +78,7 @@ export function App() {
   const [exportSize, setExportSize] = useState<SizeName>('source');
   const [format, setFormat] = useState('image/png');
   const [quality, setQuality] = useState(92);
-  const [pngLevel, setPngLevel] = useState(7);
+  const [pngLevel, setPngLevel] = useState(5);
   const [exporting, setExporting] = useState<string | null>(null);
   const [split, setSplit] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
