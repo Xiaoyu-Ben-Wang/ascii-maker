@@ -586,9 +586,13 @@ export function App() {
           {/* Floating toolbar */}
           <div className="glass absolute top-3 left-3 z-10 flex items-center gap-0.5 rounded-xl border border-line p-1 shadow-lg">
             <div className="flex items-center gap-2 pr-2 pl-2 font-mono text-[12px] font-medium tracking-tight text-fg select-none max-sm:hidden">
-              <span className="grid size-4 grid-cols-2 grid-rows-2 gap-px" aria-hidden>
-                <span className="rounded-[1px] bg-accent" /><span /><span /><span className="rounded-[1px] bg-accent" />
-              </span>
+              <svg viewBox="0 0 16 16" className="size-[18px] text-accent" aria-hidden>
+                <path d="M12.5 0.5v6M9.5 3.5h6M1.1 10.1l4.8 4.8M5.9 10.1l-4.8 4.8" className="stroke-[oklch(0.58_0.075_150)]" strokeWidth="1.3" />
+                <g className="drop-shadow-[0_0_2px_color-mix(in_oklab,var(--color-accent)_35%,transparent)]" fontFamily="Tiny5, monospace" fontSize="9" textAnchor="middle" dominantBaseline="central" fill="currentColor">
+                  <text x="3.5" y="3.5">A</text>
+                  <text x="12.5" y="12.5">M</text>
+                </g>
+              </svg>
               ascii-maker
             </div>
             <div className="mx-1 h-5 w-px bg-line max-sm:hidden" />
