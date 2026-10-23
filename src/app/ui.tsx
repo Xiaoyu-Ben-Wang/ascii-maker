@@ -191,9 +191,11 @@ export function TextField({ value, onChange, label, mono }: { value: string; onC
   );
 }
 
-export function Popover({ trigger, children, align = 'end' }: { trigger: ReactNode; children: ReactNode; align?: 'start' | 'center' | 'end' }) {
+export function Popover({ trigger, children, align = 'end', open, onOpenChange }: {
+  trigger: ReactNode; children: ReactNode; align?: 'start' | 'center' | 'end'; open?: boolean; onOpenChange?: (v: boolean) => void;
+}) {
   return (
-    <P.Root>
+    <P.Root open={open} onOpenChange={onOpenChange}>
       <P.Trigger asChild>{trigger}</P.Trigger>
       <P.Portal>
         <P.Content align={align} sideOffset={8} className="pop z-50 w-72 rounded-xl border border-line-strong bg-raised p-3 shadow-2xl outline-none">

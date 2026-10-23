@@ -1,5 +1,5 @@
 import {
-  Braces, Brush, ClipboardPaste, Columns2, Copy, Download, ImageUp, LayoutGrid, Redo2, RotateCcw, Settings2, Square, Terminal, Undo2,
+  Braces, BookmarkPlus, Brush, ClipboardPaste, Columns2, Copy, Download, ImageUp, LayoutGrid, Redo2, RotateCcw, Settings2, Square, Terminal, Trash2, Undo2,
 } from 'lucide-react';
 import { Tooltip } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -11,15 +11,23 @@ import { MaskBar } from './MaskBar.tsx';
 import { Renderer, type Rendered } from './renderer.ts';
 import { SAMPLE_SOURCES, loadSample, type SampleSource } from './sample.ts';
 import { Stage } from './Stage.tsx';
-import { Button, Kbd, Popover, Row, Select, Tip, cx } from './ui.tsx';
+import { Button, Kbd, Popover, Row, Select, TextField, Tip, cx } from './ui.tsx';
 import { zip } from './zip.ts';
 
 const STORE_KEY = 'ascii-maker:v2';
+const USER_PRESETS_KEY = 'ascii-maker:presets';
 const CUSTOM = 'custom';
-const PRESET_OPTIONS = [
-  ...Object.entries(PRESETS).map(([k, p]) => ({ value: k, label: k, hint: p.description })),
-  { value: CUSTOM, label: 'custom', hint: 'Your own settings' },
-];
+/** Saved presets live under this prefix so they never collide with built-in names. */
+const USER = 'user:';
+type UserPresets = Record<string, Partial<Params>>;
+
+function loadUserPresets(): UserPresets {
+  try {
+    const s = JSON.parse(localStorage.getItem(USER_PRESETS_KEY) ?? 'null');
+    if (s && typeof s === 'object') return s;
+  } catch { /* storage unavailable */ }
+  return {};
+}
 const FORMATS = [
   { value: 'image/png', label: 'PNG' },
   { value: 'image/jpeg', label: 'JPEG' },
@@ -56,7 +64,11 @@ const typing = (t: EventTarget | null) => t instanceof HTMLInputElement || t ins
 export function App() {
   const stored = useMemo(loadStored, []);
   const [params, setParams] = useState<Params>(stored.params);
-  const [preset, setPreset] = useState(stored.preset);
+  const [userPresets, setUserPresets] = useState(loadUserPresets);
+  const [preset, setPreset] = useState(() =>
+    stored.preset.startsWith(USER) && !(stored.preset.slice(USER.length) in userPresets) ? CUSTOM : stored.preset);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
   const [images, setImages] = useState<Img[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [view, setView] = useState<'single' | 'grid'>('single');
@@ -179,12 +191,40 @@ export function App() {
   /** Bumped when a whole look is loaded, so the inspector sections re-open or collapse to match it. */
   const [epoch, setEpoch] = useState(0);
   const presetEpoch = `${epoch}`;
+  const presetParams = useCallback((name: string): Partial<Params> | undefined =>
+    name.startsWith(USER) ? userPresets[name.slice(USER.length)] : PRESETS[name]?.params, [userPresets]);
   const applyPreset = useCallback((name: string) => {
     setEpoch((n) => n + 1);
     setPreset(name);
-    if (PRESETS[name]) setParams(resolveParams(PRESETS[name].params));
-  }, []);
-  const base = useMemo(() => resolveParams(PRESETS[preset]?.params ?? {}), [preset]);
+    const p = presetParams(name);
+    if (p) setParams(resolveParams(p));
+  }, [presetParams]);
+  const base = useMemo(() => resolveParams(presetParams(preset) ?? {}), [preset, presetParams]);
+  const presetOptions = useMemo(() => [
+    ...Object.entries(PRESETS).map(([k, p]) => ({ value: k, label: k, hint: p.description })),
+    ...Object.keys(userPresets).sort().map((k) => ({ value: USER + k, label: k, hint: 'Saved preset' })),
+    { value: CUSTOM, label: 'custom', hint: 'Your own settings' },
+  ], [userPresets]);
+  const storeUserPresets = useCallback((next: UserPresets) => {
+    setUserPresets(next);
+    try { localStorage.setItem(USER_PRESETS_KEY, JSON.stringify(next)); } catch { notify('Could not save presets in this browser'); }
+  }, [notify]);
+  const savePreset = useCallback(() => {
+    const name = saveName.trim();
+    if (!name) return;
+    storeUserPresets({ ...userPresets, [name]: changed(params) });
+    setPreset(USER + name);
+    setSaveOpen(false);
+    notify(`${name in userPresets ? 'Updated' : 'Saved'} preset “${name}”`);
+  }, [saveName, userPresets, params, storeUserPresets, notify]);
+  const deletePreset = useCallback(() => {
+    const name = preset.slice(USER.length);
+    const { [name]: _, ...rest } = userPresets;
+    storeUserPresets(rest);
+    setPreset(CUSTOM);
+    notify(`Deleted preset “${name}”`);
+  }, [preset, userPresets, storeUserPresets, notify]);
+  const userPreset = preset.startsWith(USER);
   const edits = useMemo(() => (Object.keys(DEFAULTS) as (keyof Params)[]).filter((k) => params[k] !== base[k]).length, [params, base]);
 
   // ---- image set ----
@@ -526,14 +566,34 @@ export function App() {
 
         <aside className="flex min-h-0 min-w-0 flex-col border-line bg-surface max-md:border-t md:border-l">
           <div className="flex items-center gap-2 px-4 pt-3">
-            <Select label="Preset" value={preset} options={PRESET_OPTIONS} onChange={applyPreset} className="min-w-0 flex-1" />
+            <Select label="Preset" value={preset} options={presetOptions} onChange={applyPreset} className="min-w-0 flex-1" />
+            <Popover
+              open={saveOpen}
+              onOpenChange={(v) => { setSaveOpen(v); if (v) setSaveName(userPreset ? preset.slice(USER.length) : ''); }}
+              trigger={<Button size="icon" aria-label="Save as preset"><BookmarkPlus className="size-3.5" /></Button>}
+            >
+              <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); savePreset(); }}>
+                <div className="text-[12px] text-fg">Save current settings as a preset</div>
+                <TextField label="Preset name" value={saveName} onChange={setSaveName} />
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-faint">{saveName.trim() in userPresets ? 'Overwrites the saved preset' : 'Stored in this browser'}</span>
+                  <Button type="submit" variant="primary" size="sm" disabled={!saveName.trim()}>Save</Button>
+                </div>
+              </form>
+            </Popover>
+            {userPreset && (
+              <Tip label="Delete this saved preset">
+                <Button size="icon" aria-label="Delete preset" onClick={deletePreset}><Trash2 className="size-3.5" /></Button>
+              </Tip>
+            )}
             <Tip label={preset === CUSTOM ? 'Reset everything to defaults' : 'Undo all changes to this preset'}>
               <Button size="icon" aria-label="Reset to preset" disabled={!edits} onClick={() => { setParams(base); setEpoch((n) => n + 1); }}><RotateCcw className="size-3.5" /></Button>
             </Tip>
           </div>
-          <p className="truncate px-4 pt-1.5 text-[11px] text-faint" title={PRESETS[preset]?.description}>
-            {edits ? <><span className="text-accent">{edits} change{edits > 1 ? 's' : ''}</span> · </> : null}
-            {PRESETS[preset]?.description ?? 'Your own settings. Pick a preset to start over.'}
+          <p className="truncate px-4 pt-1.5 text-[11px] text-faint empty:hidden" title={PRESETS[preset]?.description}>
+            {edits ? <span className="text-accent">{edits} change{edits > 1 ? 's' : ''}</span> : null}
+            {edits && PRESETS[preset] ? ' · ' : null}
+            {PRESETS[preset]?.description}
           </p>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <Inspector params={params} base={base} set={set} resetKey={presetEpoch} picking={picking && !grid} onPicking={(v) => { setPicking(v); if (v) setView('single'); }} />
