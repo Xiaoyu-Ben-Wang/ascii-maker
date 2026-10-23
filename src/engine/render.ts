@@ -475,7 +475,7 @@ function postProcess(img: FImage, p: Params, s: number, glowSource: FImage | und
   // Scanlines, vignette, grain and the final clamp in one pass.
   const sp = Math.max(1.5, p.scanlineSpacing * s);
   const lift = 1 + p.scanlines * 0.3;
-  const vig = p.vignette > 0 ? vignetteMask(w, h, p.vignette, p.vignetteX, p.vignetteY) : null;
+  const vig = p.vignette > 0 ? vignetteMask(w, h, p.vignette, p.vignetteSize, p.vignetteX, p.vignetteY) : null;
   const rand = mulberry32(p.seed * 7919 + 17 + frame * 104729);
   const grain = p.grain;
   for (let y = 0; y < h; y++) {
@@ -494,22 +494,22 @@ function postProcess(img: FImage, p: Params, s: number, glowSource: FImage | und
   }
 }
 
-let vigCache: { w: number; h: number; v: number; vx: number; vy: number; mask: Float32Array } | null = null;
+let vigCache: { w: number; h: number; v: number; size: number; vx: number; vy: number; mask: Float32Array } | null = null;
 // Distances are scaled by the half-size rather than the distance to each edge, so an off-center point darkens the
 // far side more than the near one.
-function vignetteMask(w: number, h: number, v: number, vx: number, vy: number): Float32Array {
+function vignetteMask(w: number, h: number, v: number, size: number, vx: number, vy: number): Float32Array {
   const c = vigCache;
-  if (c && c.w === w && c.h === h && c.v === v && c.vx === vx && c.vy === vy) return c.mask;
+  if (c && c.w === w && c.h === h && c.v === v && c.size === size && c.vx === vx && c.vy === vy) return c.mask;
   const mask = new Float32Array(w * h);
   const cx = w * vx, cy = h * vy, hw = w / 2, hh = h / 2;
   for (let y = 0; y < h; y++) {
     const dy = (y - cy) / hh;
     for (let x = 0; x < w; x++) {
       const dx = (x - cx) / hw;
-      mask[y * w + x] = 1 - v * smoothstep(0.35, 1, Math.sqrt((dx * dx + dy * dy) / 2));
+      mask[y * w + x] = 1 - v * smoothstep(0.35 * size, size, Math.sqrt((dx * dx + dy * dy) / 2));
     }
   }
-  vigCache = { w, h, v, vx, vy, mask };
+  vigCache = { w, h, v, size, vx, vy, mask };
   return mask;
 }
 

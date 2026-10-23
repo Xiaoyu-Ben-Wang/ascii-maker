@@ -168,7 +168,7 @@ Applied after the glyphs, in this order:
 | Glow (bloom) | Halo around bright glyphs (or bright pixels for dither and photo) |
 | Color fringe | Shifts red and blue apart toward the edges, like a cheap lens |
 | Scanlines | Dark horizontal CRT lines |
-| Vignette | Darkens toward the edges; pick its center on the image |
+| Vignette | Darkens toward the edges; **Size** sets how much of the center stays clear, and you pick the center on the image |
 | Grain | Film noise |
 
 There are three kinds of blur: the background blur (under the glyphs), glyph softness (the glyphs only) and the Blur effect (everything).

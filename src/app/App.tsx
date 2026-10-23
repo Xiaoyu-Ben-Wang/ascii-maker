@@ -322,7 +322,7 @@ export function App() {
           return { id, bitmap: res.bitmap, text: res.text, ms: res.ms };
         });
       });
-    }, params === renderedParams.current ? 0 : 150);
+    }, params === renderedParams.current ? 0 : 100);
     return () => { cancelled = true; clearTimeout(t); };
   }, [active, frame, params, previewWidth, previewHeight, renderer, view, gen, maskGen]);
 

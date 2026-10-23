@@ -103,8 +103,9 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: 'Vignette', switch: { key: 'vignette', on: 0.2 }, fields: [
+    title: 'Vignette', switch: { key: 'vignette', on: 0.1 }, fields: [
       { key: 'vignette', label: 'Strength', hint: 'Darkens toward the edges.' },
+      { key: 'vignetteSize', label: 'Size', hint: 'How far the undarkened center reaches. Larger keeps more of the image clear.' },
       { key: 'vignetteX', label: 'Center', kind: 'point' },
     ],
   },

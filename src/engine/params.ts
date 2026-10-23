@@ -100,6 +100,7 @@ export interface Params {
   scanlines: number; // 0..1
   scanlineSpacing: number; // px
   vignette: number; // 0..1
+  vignetteSize: number; // scales the clear center; 1 = darkening starts at 35% of the half-diagonal
   vignetteX: number; // 0..1 vignette center, fraction of width
   vignetteY: number; // 0..1 fraction of height
   chromatic: number; // px
@@ -153,22 +154,23 @@ export const DEFAULTS: Params = {
   bloomThreshold: 0.4,
   scanlines: 0,
   scanlineSpacing: 4,
-  vignette: 0.2,
+  vignette: 0.1,
+  vignetteSize: 1,
   vignetteX: 0.5,
   vignetteY: 0.5,
   chromatic: 0,
-  grain: 0.04,
+  grain: 0,
   seed: 1,
 };
 
 export const PRESETS: Record<string, { description: string; params: Partial<Params> }> = {
   'soft-ascii': {
     description: 'Glowing ASCII on the highlights, over a softened copy of the photo',
-    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 3, bgOpacity: 1, haloBlur: 9, bloom: 0.6, vignette: 0.2 },
+    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 3, bgOpacity: 1, haloBlur: 9, bloom: 0.6, vignette: 0.1 },
   },
   'sharp-ascii': {
     description: 'Glowing ASCII on the highlights of the sharp photo, dimmed only around the glyphs',
-    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 0, bgOpacity: 1, haloDim: 0.2, bloom: 0.6, vignette: 0.2 },
+    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 0, bgOpacity: 1, haloDim: 0.2, bloom: 0.6, vignette: 0.1 },
   },
   cross: {
     description: 'Cross-stitch "+" and "×" marks that grow with brightness',
@@ -206,7 +208,7 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
   },
   'gameboy-dither': {
     description: 'Ordered Bayer dither in the 4-tone Game Boy palette with scanlines',
-    params: { style: 'dither', ditherAlgo: 'bayer4', palette: 'gameboy', pixelSize: 4, scanlines: 0.35, bloom: 0.2, vignette: 0.2 },
+    params: { style: 'dither', ditherAlgo: 'bayer4', palette: 'gameboy', pixelSize: 4, scanlines: 0.35, bloom: 0.2, vignette: 0.1 },
   },
   dither: {
     description: 'Plain Floyd–Steinberg dither in colors picked from the image, no other effects',
@@ -260,6 +262,7 @@ export const RANGES: Partial<Record<keyof Params, [min: number, max: number, ste
   scanlines: [0, 1, 0.01],
   scanlineSpacing: [2, 16, 0.5],
   vignette: [0, 1, 0.01],
+  vignetteSize: [0.3, 2, 0.01],
   vignetteX: [0, 1, 0.01],
   vignetteY: [0, 1, 0.01],
   chromatic: [0, 12, 0.1],
