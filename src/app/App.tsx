@@ -12,7 +12,7 @@ import { CanceledError, Renderer, type VideoProgress } from './renderer.ts';
 import { SAMPLE_SOURCES, loadSample, type SampleSource } from './sample.ts';
 import { Scrubber } from './Scrubber.tsx';
 import { Stage } from './Stage.tsx';
-import { Button, Kbd, Popover, Progress, Row, Select, SliderField, TextField, Tip, cx } from './ui.tsx';
+import { Button, Kbd, Popover, Progress, Row, Select, SliderField, Switch, TextField, Tip, cx } from './ui.tsx';
 import { VIDEO_FORMATS, VideoSource, encodableFormats, evenSize, isVideo, type VideoFormat } from './video.ts';
 import { zip } from './zip.ts';
 
@@ -89,6 +89,7 @@ export function App() {
   const [quality, setQuality] = useState(92);
   const [pngLevel, setPngLevel] = useState(5);
   const [videoFormat, setVideoFormat] = useState<VideoFormat>('mp4');
+  const [keepAudio, setKeepAudio] = useState(true);
   const [encodable, setEncodable] = useState<VideoFormat[] | null>(null);
   /** The running export: a label and progress 0..1 (null while it can't be measured). */
   const [job, setJob] = useState<{ label: string; value: number | null } | null>(null);
@@ -416,13 +417,13 @@ export function App() {
       const fmt = ok.includes(videoFormat) ? videoFormat : ok[0];
       if (!fmt) throw new Error('this browser cannot encode video');
       const total = Math.max(1, Math.round(img.video.info.duration * img.video.info.fps));
-      const r = await renderer!.exportVideo({ sourceId: img.id, file: img.video.file, width, height, crop: f.crop, params: p, format: fmt, audio: true },
+      const r = await renderer!.exportVideo({ sourceId: img.id, file: img.video.file, width, height, crop: f.crop, params: p, format: fmt, audio: keepAudio },
         (v) => onFrame?.(v, Math.max(total, v.frame)), signal);
       return { blob: r.blob, width, height, ms: r.ms, name: `${img.name}-${p.style}.${fmt}` };
     }
     const r = await abortable(renderer!.export({ sourceId: img.id, width: f.width, height: f.height, crop: f.crop, params: p, mime: format, quality: quality / 100, pngLevel }), signal);
     return { ...r, name: `${img.name}-${p.style}.${ext(format)}` };
-  }, [renderer, exportSize, format, quality, pngLevel, videoFormat]);
+  }, [renderer, exportSize, format, quality, pngLevel, videoFormat, keepAudio]);
 
   const startJob = useCallback((label: string, value: number | null) => {
     const ac = new AbortController();
@@ -729,13 +730,18 @@ export function App() {
                 ? <SliderField label="Compression" hint="Lossless either way: higher is smaller but slower to export. JPEG or WebP are far smaller." value={pngLevel} min={0} max={9} step={1} onChange={setPngLevel} />
                 : <SliderField label="Quality" hint="Lower makes smaller files with more compression artifacts." value={quality} min={10} max={100} step={1} onChange={setQuality} />}
               {sampleVideo && (
-                <Row label="Video" hint="Container and codec for exported videos. The source audio is kept.">
-                  <Select label="Video format" value={videoFormat} onChange={setVideoFormat}
-                    options={VIDEO_FORMATS.map((f) => {
-                      const off = !!encodable && !encodable.includes(f.value);
-                      return { value: f.value, label: f.label, disabled: off, hint: off ? 'This browser cannot encode it' : undefined };
-                    })} />
-                </Row>
+                <>
+                  <Row label="Video" hint="Container and codec for exported videos.">
+                    <Select label="Video format" value={videoFormat} onChange={setVideoFormat}
+                      options={VIDEO_FORMATS.map((f) => {
+                        const off = !!encodable && !encodable.includes(f.value);
+                        return { value: f.value, label: f.label, disabled: off, hint: off ? 'This browser cannot encode it' : undefined };
+                      })} />
+                  </Row>
+                  <Row label="Keep audio" hint="Copy the source audio into exported videos, or leave them silent.">
+                    <Switch label="Keep audio" checked={keepAudio} onChange={setKeepAudio} />
+                  </Row>
+                </>
               )}
               {frame && <div className="pt-1 pb-2 text-right font-mono text-[11px] text-faint">{frame.width} × {frame.height}px</div>}
               <div className="mt-1 grid gap-1 border-t border-line pt-2">
