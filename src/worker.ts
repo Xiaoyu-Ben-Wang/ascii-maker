@@ -112,11 +112,10 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
     const mask = maskFor(msg.sourceId, msg.crop);
     if (msg.type === 'render') {
       const sourceKey = `${msg.sourceId}.${versions.get(msg.sourceId) ?? 0}:${msg.crop.x},${msg.crop.y},${msg.crop.w},${msg.crop.h}`;
-      const { r, gpu: onGpu } = renderAny(img, msg.params, { createCanvas, targetWidth: msg.targetWidth, cache, sourceKey, mask }, gpuEnabled);
-      const bitmap = toCanvas(r.data, r.width, r.height).transferToImageBitmap();
-      post({ type: 'rendered', reqId: msg.reqId, bitmap, text: r.text, ms: performance.now() - t0, gpu: onGpu }, [bitmap]);
+      const { r, gpu: onGpu } = renderAny.bitmap(img, msg.params, { createCanvas, targetWidth: msg.targetWidth, cache, sourceKey, mask }, gpuEnabled);
+      post({ type: 'rendered', reqId: msg.reqId, bitmap: r.bitmap, text: r.text, ms: performance.now() - t0, gpu: onGpu }, [r.bitmap]);
     } else {
-      const { r, gpu: onGpu } = renderAny(img, msg.params, { createCanvas, mask }, gpuEnabled);
+      const { r, gpu: onGpu } = renderAny.data(img, msg.params, { createCanvas, mask }, gpuEnabled);
       forget(keyOf(msg.sourceId, msg.width, msg.height, msg.crop)); // full-size buffers are large; don't keep them around
       const blob = msg.mime === 'image/png'
         ? new Blob([encodePng(r.data, r.width, r.height, msg.pngLevel) as Uint8Array<ArrayBuffer>], { type: 'image/png' })

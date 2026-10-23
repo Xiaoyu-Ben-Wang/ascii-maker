@@ -29,8 +29,12 @@ self.onmessage = async (e: MessageEvent<VideoJob>) => {
   try {
     const target = new mb.BufferTarget();
     const output = new mb.Output({ format: job.format === 'mp4' ? new mb.Mp4OutputFormat({ fastStart: 'in-memory' }) : new mb.WebMOutputFormat(), target });
-    const src = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true })!;
+    // Frames stay on the GPU: decoded into this canvas, uploaded from it, and rendered into a bitmap. Pixels are
+    // read back only for the first frame's dither palette and for the CPU fallback.
+    const srcCanvas = new OffscreenCanvas(w, h);
+    const src = srcCanvas.getContext('2d')!;
     src.imageSmoothingQuality = 'high';
+    const frameIn = { width: w, height: h, image: srcCanvas, read: () => src.getImageData(0, 0, w, h) };
     const out = new OffscreenCanvas(w, h);
     const outCtx = out.getContext('2d')!;
     let locked: Params | null = null;
@@ -43,13 +47,11 @@ self.onmessage = async (e: MessageEvent<VideoJob>) => {
         width: w, height: h, fit: 'fill', codec: job.format === 'mp4' ? 'avc' : 'vp9', quality: new mb.Quality(job.quality), forceTranscode: true,
         process: (sample) => {
           sample.draw(src, 0, 0, w, h);
-          const img = src.getImageData(0, 0, w, h);
           // The first frame fixes an "auto" dither palette so colors don't flicker frame to frame.
-          locked ??= lockPalette(img, job.params);
-          const { r } = renderAny(img, locked, { createCanvas, mask: job.mask, frame: frame++ }, job.gpu);
-          const data = new ImageData(r.data as Uint8ClampedArray<ArrayBuffer>, r.width, r.height);
-          if (r.width === w && r.height === h) outCtx.putImageData(data, 0, 0);
-          else outCtx.drawImage(canvasOf(data), 0, 0, w, h);
+          locked ??= job.params.style === 'dither' && job.params.palette === 'auto' ? lockPalette(frameIn.read(), job.params) : job.params;
+          const { r } = renderAny.bitmap(frameIn, locked, { createCanvas, mask: job.mask, frame: frame++ }, job.gpu);
+          outCtx.drawImage(r.bitmap, 0, 0, w, h);
+          r.bitmap.close();
           return out;
         },
       },
@@ -72,9 +74,3 @@ self.onmessage = async (e: MessageEvent<VideoJob>) => {
     input.dispose();
   }
 };
-
-function canvasOf(data: ImageData) {
-  const c = new OffscreenCanvas(data.width, data.height);
-  c.getContext('2d')!.putImageData(data, 0, 0);
-  return c;
-}

@@ -235,16 +235,19 @@ Every render runs the same pipeline (`src/engine/render.ts`), in floating point 
 
 9. **Post effects**, in the order listed under [Effects](#effects). Glow keeps the parts above its threshold, blurs them at two radii (a tight halo plus a wide haze, at half resolution) and adds them back through a soft shoulder curve, so blown highlights roll off smoothly instead of clipping. For glyph styles the glow comes from the glyph layer only, so the background doesn't bloom.
 
-**Speed.** In the editor, rendering runs in Web Workers. One worker holds the full-resolution images for the preview and exports, and a small pool renders the All-view thumbnails in parallel from downscaled copies. While a slider moves, the editor first renders a half-resolution draft, then the full preview once you stop; intermediate results (adjusted image, blurred background, cell averages) are cached, so changing a glyph setting doesn't redo the blurs. The CLI runs the same engine on `@napi-rs/canvas`, and spreads video frames across worker threads.
+**Speed.** In the editor, rendering runs in Web Workers. One worker holds the full-resolution images for the preview and exports, and a small pool renders the All-view thumbnails in parallel from downscaled copies. While a slider moves, the editor first renders a half-resolution draft, then the full preview once you stop; intermediate results (adjusted image, blurred background, cell averages) are cached, so changing a glyph setting doesn't redo the blurs. With GPU rendering on (the default), the pixel passes and the glyph drawing run as WebGL2 shaders; only glyph choice and error-diffusion dithering stay on the CPU. Previews go from the GPU to the screen without being read back, and video frames are uploaded, rendered and handed to the encoder the same way. The CLI runs the same engine on `@napi-rs/canvas`, and spreads video frames across worker threads.
 
 ## Development
 
 ```bash
 pnpm test        # node:test suite (engine, zip, CLI)
+pnpm test:gpu    # WebGL2 renderer vs the CPU, and video export, in headless Chromium (no GPU needed)
 pnpm typecheck
 pnpm bench out/photo.jpg   # preview-size render timings per preset
 pnpm build       # static site in dist/
 node scripts/examples.ts --photo your-photo.jpg   # regenerate the example images
 ```
+
+`pnpm test:gpu` needs Playwright's Chromium once: `pnpm exec playwright-core install chromium`.
 
 The planet, clouds and orbs scenes are procedural (`src/samples/scenes.ts`). The editor is built with React, [Radix UI](https://www.radix-ui.com/) primitives and Tailwind CSS, and is deployed to GitHub Pages by `.github/workflows/pages.yml` on every push to `main`.

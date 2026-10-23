@@ -222,6 +222,28 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
   return { out, glow, text: layer.text };
 }
 
+/**
+ * Which glyph goes where, before any pixels are drawn: one mask slot, position and color per cell. The CPU stamps it
+ * with glyphLayer, the GPU renderer in a shader.
+ */
+export interface GlyphPlan {
+  /** Size of every mask. */
+  mw: number;
+  mh: number;
+  /** Unique glyph masks (coverage 0..1, mw×mh), by slot, with the cache key of each. */
+  masks: Float32Array[];
+  maskKeys: string[];
+  /** Per cell, in raster order: mask slot (-1 = nothing drawn) and top-left corner of the stamp in image pixels. */
+  slot: Int32Array;
+  x0: Int32Array;
+  y0: Int32Array;
+  /** Per cell: glyph color and opacity, 4 floats. */
+  color: Float64Array;
+  /** Glyph opacity per cell. */
+  cover: Float32Array;
+  text?: string;
+}
+
 export interface GlyphLayer {
   /** Glyph colors, premultiplied by their coverage. */
   glow: FImage;
@@ -234,6 +256,33 @@ export interface GlyphLayer {
 
 /** Picks a glyph per cell from the cell averages and stamps them into full-resolution color and alpha layers. */
 export function glyphLayer(cells: FImage, grid: CellGrid, w: number, h: number, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, highlightMask?: HighlightMask): GlyphLayer {
+  const plan = glyphPlan(cells, grid, p, s, createCanvas, minPx, w, h, highlightMask);
+  const { mw, mh, masks, slot, x0: X0, y0: Y0, color } = plan;
+  const glow = createF(w, h);
+  const alpha = createF(w, h);
+  const gr = glow.r, gg = glow.g, gb = glow.b, al = alpha.r;
+  // Cells are stamped in raster order, each over what came before; the GPU shader composites in the same order.
+  for (let c = 0; c < slot.length; c++) {
+    if (slot[c] < 0) continue;
+    const m = masks[slot[c]];
+    const x0 = X0[c], y0 = Y0[c];
+    const r = color[c * 4], g = color[c * 4 + 1], b = color[c * 4 + 2], a = color[c * 4 + 3];
+    const i0 = Math.max(0, -x0), i1 = Math.min(mw, w - x0);
+    for (let j = Math.max(0, -y0), j1 = Math.min(mh, h - y0); j < j1; j++) {
+      let o = (y0 + j) * w + x0 + i0;
+      for (let mi = j * mw + i0, me = j * mw + i1; mi < me; mi++, o++) {
+        const ea = m[mi] * a;
+        if (ea === 0) continue;
+        const k = 1 - ea;
+        gr[o] = gr[o] * k + r * ea; gg[o] = gg[o] * k + g * ea; gb[o] = gb[o] * k + b * ea; al[o] = al[o] * k + ea;
+      }
+    }
+  }
+  return { glow, alpha, cover: plan.cover, text: plan.text };
+}
+
+/** Picks a glyph, color and opacity per cell from the cell averages. */
+export function glyphPlan(cells: FImage, grid: CellGrid, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, w: number, h: number, highlightMask?: HighlightMask): GlyphPlan {
   const { cw, ch, cols, rows } = grid;
   const lum = new Float32Array(cols * rows);
   for (let i = 0; i < lum.length; i++) lum[i] = luma(cells.r[i], cells.g[i], cells.b[i]);
@@ -254,8 +303,18 @@ export function glyphLayer(cells: FImage, grid: CellGrid, w: number, h: number, 
   const mw = Math.ceil(cw) + 2 * pad, mh = Math.ceil(ch) + 2 * pad;
   const fontPx = Math.round(ch);
   const atlasKey = `${p.style}|${mw}x${mh}|${ch.toFixed(2)}|${cw.toFixed(2)}|${lineWidth.toFixed(2)}|${p.font}`;
-  const mask = (key: string, draw: (ctx: Ctx2D, x: number, y: number) => void) =>
-    glyphMask(`${atlasKey}|${key}`, mw, mh, createCanvas, (ctx) => {
+  const masks: Float32Array[] = [];
+  const maskKeys: string[] = [];
+  const slots = new Map<string, number>();
+  /** The slot of a mask, rasterizing it on first use. */
+  const mask = (key: string, draw: (ctx: Ctx2D, x: number, y: number) => void) => {
+    const full = `${atlasKey}|${key}`;
+    let k = slots.get(full);
+    if (k !== undefined) return k;
+    k = masks.length;
+    slots.set(full, k);
+    maskKeys.push(full);
+    masks.push(glyphMask(full, mw, mh, createCanvas, (ctx) => {
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = '#fff';
       ctx.lineCap = 'round';
@@ -264,26 +323,24 @@ export function glyphLayer(cells: FImage, grid: CellGrid, w: number, h: number, 
       ctx.textBaseline = 'middle';
       ctx.font = `${fontPx}px ${p.font}`;
       draw(ctx, mw / 2, mh / 2);
-    });
+    }));
+    return k;
+  };
   // Shape sizes are quantized so a handful of masks cover every brightness.
   const LEVELS = 24;
   const level = (t: number) => Math.round(clamp01(t) * LEVELS) / LEVELS;
 
-  const glow = createF(w, h);
-  const alpha = createF(w, h);
-  const gr = glow.r, gg = glow.g, gb = glow.b, al = alpha.r;
-  const stamp = (m: Float32Array, mx: number, my: number, r: number, g: number, b: number, a: number) => {
+  const n = cols * rows;
+  const slot = new Int32Array(n).fill(-1);
+  const X0 = new Int32Array(n), Y0 = new Int32Array(n);
+  const color = new Float64Array(n * 4);
+  let i = 0; // the cell being planned
+  const stamp = (k: number, mx: number, my: number, r: number, g: number, b: number, a: number) => {
+    // Stamps entirely outside the image draw nothing.
     const x0 = Math.round(mx - mw / 2), y0 = Math.round(my - mh / 2);
-    const i0 = Math.max(0, -x0), i1 = Math.min(mw, w - x0);
-    for (let j = Math.max(0, -y0), j1 = Math.min(mh, h - y0); j < j1; j++) {
-      let o = (y0 + j) * w + x0 + i0;
-      for (let mi = j * mw + i0, me = j * mw + i1; mi < me; mi++, o++) {
-        const ea = m[mi] * a;
-        if (ea === 0) continue;
-        const k = 1 - ea;
-        gr[o] = gr[o] * k + r * ea; gg[o] = gg[o] * k + g * ea; gb[o] = gb[o] * k + b * ea; al[o] = al[o] * k + ea;
-      }
-    }
+    if (x0 >= w || y0 >= h || x0 + mw <= 0 || y0 + mh <= 0) return;
+    slot[i] = k; X0[i] = x0; Y0[i] = y0;
+    color[i * 4] = r; color[i * 4 + 1] = g; color[i * 4 + 2] = b; color[i * 4 + 3] = a;
   };
 
   const mono = hexToRgb(p.monoColor);
@@ -301,7 +358,7 @@ export function glyphLayer(cells: FImage, grid: CellGrid, w: number, h: number, 
   for (let cy = 0; cy < rows; cy++) {
     let line = '';
     for (let cx = 0; cx < cols; cx++) {
-      const i = cy * cols + cx;
+      i = cy * cols + cx;
       const l = bright[i];
       const jitter = rand();
       let a = smoothstep(th, fadeEnd, l) * p.glyphOpacity;
@@ -386,7 +443,7 @@ export function glyphLayer(cells: FImage, grid: CellGrid, w: number, h: number, 
     textRows.push(line.replace(/\s+$/, ''));
   }
 
-  return { glow, alpha, cover, text: p.style === 'characters' ? textRows.join('\n') : undefined };
+  return { mw, mh, masks, maskKeys, slot, x0: X0, y0: Y0, color, cover, text: p.style === 'characters' ? textRows.join('\n') : undefined };
 }
 
 /** Dims and/or blurs the photo only near glyphs, so the rest of the image stays as it is. */

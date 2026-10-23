@@ -3,22 +3,41 @@
 import { dither } from './dither.ts';
 import type { Params } from './params.ts';
 import { blur, createF, hexToRgb, type FImage, type RGBAImage } from './pixels.ts';
-import { cellGrid, glyphLayer, render, type RenderOptions, type RenderResult } from './render.ts';
+import { cellGrid, glyphPlan, render, type GlyphPlan, type RenderOptions, type RenderResult } from './render.ts';
 
 /** The GPU itself failed (context lost, out of memory, driver error), as opposed to this one render not fitting. */
 class GpuFailure extends Error {}
 
 /**
- * A render function that uses the GPU while `enabled` and available, and the CPU otherwise. Any GPU-side error
+ * A source the GPU can upload straight from (a canvas, bitmap or video frame) instead of from CPU pixels. `read`
+ * returns its pixels for the CPU fallback.
+ */
+export interface ImageInput { width: number; height: number; image: TexImageSource; read: () => RGBAImage }
+export type Source = RGBAImage | ImageInput;
+/** A render handed over as an ImageBitmap, without reading the pixels back from the GPU. */
+export interface BitmapResult { width: number; height: number; bitmap: ImageBitmap; text?: string }
+
+const pixelsOf = (src: Source): RGBAImage => ('image' in src ? src.read() : src);
+
+function bitmapOf(r: RenderResult): BitmapResult {
+  const c = new OffscreenCanvas(r.width, r.height);
+  c.getContext('2d')!.putImageData(new ImageData(r.data as Uint8ClampedArray<ArrayBuffer>, r.width, r.height), 0, 0);
+  return { width: r.width, height: r.height, bitmap: c.transferToImageBitmap(), text: r.text };
+}
+
+/**
+ * Render functions that use the GPU while `enabled` and available, and the CPU otherwise. Any GPU-side error
  * re-renders that call on the CPU; after a GPU failure it stays on the CPU. Each call reports which one it used.
+ * `data` returns pixels (for encoding); `bitmap` returns an ImageBitmap (for display), which on the GPU skips the
+ * read-back entirely.
  */
 export function gpuOrCpu() {
   let gpu: GpuRenderer | null | undefined;
-  return (src: RGBAImage, p: Params, opts: RenderOptions, enabled: boolean): { r: RenderResult; gpu: boolean } => {
+  const run = <T>(src: Source, p: Params, opts: RenderOptions, enabled: boolean, onGpu: (g: GpuRenderer) => T, onCpu: (r: RenderResult) => T): { r: T; gpu: boolean } => {
     if (enabled && gpu !== null) {
       try {
         gpu ??= GpuRenderer.create();
-        if (gpu) return { r: gpu.render(src, p, opts), gpu: true };
+        if (gpu) return { r: onGpu(gpu), gpu: true };
       } catch (err) {
         if (err instanceof GpuFailure) {
           console.warn('GPU rendering failed; using the CPU from now on.', err);
@@ -26,7 +45,13 @@ export function gpuOrCpu() {
         }
       }
     }
-    return { r: render(src, p, opts), gpu: false };
+    return { r: onCpu(render(pixelsOf(src), p, opts)), gpu: false };
+  };
+  return {
+    data: (src: Source, p: Params, opts: RenderOptions, enabled: boolean) =>
+      run(src, p, opts, enabled, (g) => g.render(src, p, opts), (r) => r),
+    bitmap: (src: Source, p: Params, opts: RenderOptions, enabled: boolean) =>
+      run(src, p, opts, enabled, (g) => g.renderBitmap(src, p, opts), bitmapOf),
   };
 }
 
@@ -137,6 +162,32 @@ void main() {
   o = vec4(c, 1.0);
 }`,
 
+  // Stamps the glyph masks of the cells around this pixel, composited in raster order exactly like glyphLayer.
+  // uSlot per cell: mask slot (-1 = none) and the stamp's top-left pixel; uColor: glyph color and opacity.
+  glyphs: `uniform sampler2D uSlot, uColor, uAtlas; uniform ivec2 uGrid, uMask; uniform int uAtlasCols; uniform vec2 uCell;
+void main() {
+  ivec2 p = P();
+  // A stamp at x0 = round(cx * cw + cw/2 - mw/2) covers x0 .. x0 + mw - 1; these are the cells whose stamps can reach p.
+  vec2 a = (vec2(p) - vec2(uMask) / 2.0 - uCell / 2.0 + 0.5) / uCell;
+  ivec2 lo = max(ivec2(0), ivec2(floor(a)));
+  ivec2 hi = min(uGrid - 1, ivec2(floor(a + vec2(uMask) / uCell + 0.01)));
+  vec3 g = vec3(0.0); float al = 0.0;
+  for (int cy = lo.y; cy <= hi.y; cy++)
+    for (int cx = lo.x; cx <= hi.x; cx++) {
+      vec4 sl = texelFetch(uSlot, ivec2(cx, cy), 0);
+      if (sl.r < 0.0) continue;
+      ivec2 q = p - ivec2(sl.gb);
+      if (q.x < 0 || q.y < 0 || q.x >= uMask.x || q.y >= uMask.y) continue;
+      int k = int(sl.r);
+      float m = texelFetch(uAtlas, ivec2((k % uAtlasCols) * uMask.x + q.x, (k / uAtlasCols) * uMask.y + q.y), 0).r;
+      vec4 c = texelFetch(uColor, ivec2(cx, cy), 0);
+      float ea = m * c.a;
+      if (ea == 0.0) continue;
+      g = g * (1.0 - ea) + c.rgb * ea; al = al * (1.0 - ea) + ea;
+    }
+  o = vec4(g, al);
+}`,
+
   bloom: `uniform sampler2D uTight, uWide; uniform float uStrength;
 void main() { ivec2 p = P(); o = vec4(uStrength * (0.55 * texelFetch(uTight, p, 0).rgb + 0.65 * texelFetch(uWide, p, 0).rgb), 1.0); }`,
 
@@ -149,7 +200,7 @@ void main() {
 
   // Glow, color fringe, scanlines, vignette, grain and the final clamp; output is rounded like Uint8ClampedArray.
   final: `uniform sampler2D uImg, uComb; uniform bool uBloom; uniform ivec2 uSize, uCombSize;
-uniform float uChrom, uScan, uScanSp, uVig, uVigSize, uVigX, uVigY, uGrain; uniform uint uSeed;
+uniform float uChrom, uScan, uScanSp, uVig, uVigSize, uVigX, uVigY, uGrain; uniform uint uSeed; uniform bool uFlip;
 float shoulder(float v) { return v <= 0.8 ? v : 0.8 + 0.2 * (1.0 - exp(-(v - 0.8) / 0.2)); }
 vec3 at(ivec2 q) {
   vec3 c = texelFetch(uImg, q, 0).rgb;
@@ -163,6 +214,8 @@ float hash(ivec2 p) {
 }
 void main() {
   ivec2 p = P();
+  // Drawing to the canvas: its row 0 is the bottom, while textures here keep the image's top row at 0.
+  if (uFlip) p.y = uSize.y - 1 - p.y;
   vec2 sz = vec2(uSize), x = vec2(p);
   vec3 c = at(p);
   if (uChrom > 0.0) {
@@ -196,6 +249,9 @@ export class GpuRenderer {
   private live = new Set<Tex>();
   private usedKeys = new Set<string>();
   private srcCache: { key: string; tex: Tex } | null = null;
+  /** Glyph mask atlases by their mask list, most recently used last; outside the texture pool. */
+  private atlases = new Map<string, { tex: Tex; cols: number }>();
+  private canvas: OffscreenCanvas;
   private lost = false;
   private maxSize: number;
 
@@ -206,7 +262,7 @@ export class GpuRenderer {
       const canvas = new OffscreenCanvas(1, 1);
       const gl = canvas.getContext('webgl2', { antialias: false, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: 'high-performance' });
       if (!gl || !gl.getExtension('EXT_color_buffer_float')) return null;
-      const r = new GpuRenderer(gl);
+      const r = new GpuRenderer(gl, canvas);
       canvas.addEventListener('webglcontextlost', () => { r.lost = true; });
       return r;
     } catch {
@@ -214,8 +270,9 @@ export class GpuRenderer {
     }
   }
 
-  private constructor(gl: WebGL2RenderingContext) {
+  private constructor(gl: WebGL2RenderingContext, canvas: OffscreenCanvas) {
     this.gl = gl;
+    this.canvas = canvas;
     this.maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
     const vs = this.shader(gl.VERTEX_SHADER, VERT);
     for (const [name, src] of Object.entries(SHADERS)) {
@@ -256,15 +313,20 @@ export class GpuRenderer {
     this.usedKeys.add(key);
     const pooled = this.free.get(key)?.pop();
     if (pooled) { this.live.add(pooled); return pooled; }
+    const tex = this.newTex(w, h, fmt);
+    this.live.add(tex);
+    return tex;
+  }
+
+  private newTex(w: number, h: number, fmt: Fmt): Tex {
     const gl = this.gl;
+    const key = `${fmt}:${w}x${h}`;
     const t = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texStorage2D(gl.TEXTURE_2D, 1, fmt === 'u8' ? gl.RGBA8 : fmt === 'f16' ? gl.RGBA16F : gl.RGBA32F, w, h);
     for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]])
       gl.texParameteri(gl.TEXTURE_2D, k, v);
-    const tex = { t, w, h, fmt, key };
-    this.live.add(tex);
-    return tex;
+    return { t, w, h, fmt, key };
   }
 
   private release(...ts: (Tex | null | undefined)[]) {
@@ -276,12 +338,45 @@ export class GpuRenderer {
     }
   }
 
-  private upload(w: number, h: number, fmt: 'u8' | 'f32', data: ArrayBufferView): Tex {
+  private upload(w: number, h: number, fmt: 'u8' | 'f32', data: ArrayBufferView, into?: Tex): Tex {
     const gl = this.gl;
-    const t = this.tex(w, h, fmt);
+    const t = into ?? this.tex(w, h, fmt);
     gl.bindTexture(gl.TEXTURE_2D, t.t);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, fmt === 'u8' ? gl.UNSIGNED_BYTE : gl.FLOAT, data);
     return t;
+  }
+
+  private uploadImage(src: ImageInput): Tex {
+    const gl = this.gl;
+    const t = this.tex(src.width, src.height, 'u8');
+    gl.bindTexture(gl.TEXTURE_2D, t.t);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, src.width, src.height, gl.RGBA, gl.UNSIGNED_BYTE, src.image);
+    return t;
+  }
+
+  /** The plan's glyph masks packed into one texture, reused while the same masks are in use. */
+  private atlas(plan: GlyphPlan): { tex: Tex; cols: number } {
+    const key = plan.maskKeys.join('\n');
+    const hit = this.atlases.get(key);
+    if (hit) { this.atlases.delete(key); this.atlases.set(key, hit); return hit; }
+    const { mw, mh, masks } = plan;
+    const cols = Math.max(1, Math.ceil(Math.sqrt(masks.length)));
+    const rows = Math.max(1, Math.ceil(masks.length / cols));
+    const W = cols * mw, H = rows * mh;
+    if (W > this.maxSize || H > this.maxSize) throw new Error(`glyph atlas exceeds the GPU texture limit of ${this.maxSize}px`);
+    const data = new Uint8Array(W * H * 4);
+    masks.forEach((m, k) => {
+      const ox = (k % cols) * mw, oy = Math.floor(k / cols) * mh;
+      for (let y = 0; y < mh; y++) for (let x = 0; x < mw; x++) data[((oy + y) * W + ox + x) * 4] = Math.round(m[y * mw + x] * 255);
+    });
+    const entry = { tex: this.upload(W, H, 'u8', data, this.newTex(W, H, 'u8')), cols };
+    this.atlases.set(key, entry);
+    while (this.atlases.size > 8) {
+      const [k, old] = this.atlases.entries().next().value!;
+      this.gl.deleteTexture(old.tex.t);
+      this.atlases.delete(k);
+    }
+    return entry;
   }
 
   private bindTarget(t: Tex) {
@@ -309,9 +404,15 @@ export class GpuRenderer {
   // ---- passes ----
 
   private pass(name: string, w: number, h: number, fmt: Fmt, uniforms: Record<string, Uniform>): Tex {
+    const target = this.tex(w, h, fmt);
+    this.draw(name, w, h, uniforms, target);
+    return target;
+  }
+
+  /** Runs a shader over a w×h target: a texture, or the canvas when `target` is null. */
+  private draw(name: string, w: number, h: number, uniforms: Record<string, Uniform>, target: Tex | null) {
     const gl = this.gl;
     const { prog, uniforms: info } = this.programs.get(name)!;
-    const target = this.tex(w, h, fmt);
     gl.useProgram(prog);
     let unit = 0;
     for (const [k, v] of Object.entries(uniforms)) {
@@ -328,12 +429,12 @@ export class GpuRenderer {
       else if (u.type === gl.FLOAT_VEC3) gl.uniform3fv(u.loc, v as number[]);
       else if (u.type === gl.INT_VEC2) gl.uniform2iv(u.loc, v as number[]);
     }
-    this.bindTarget(target);
+    if (target) this.bindTarget(target);
+    else gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, w, h);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // Unbind inputs so a texture is never sampled while it is also the render target of a later pass.
     for (let i = 0; i < unit; i++) { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, null); }
-    return target;
   }
 
   private down(src: Tex, f: number, bright?: { lo: number; hi: number }, fmt: Fmt = 'f16'): Tex {
@@ -376,7 +477,7 @@ export class GpuRenderer {
     return this.blur(adj, bgBlur * s, p.bgOpacity, hexToRgb(p.bgColor));
   }
 
-  private source(src: RGBAImage, key: string | undefined): Tex {
+  private source(src: Source, key: string | undefined): Tex {
     const k = key && `${key}|${src.width}x${src.height}`;
     if (k && this.srcCache?.key === k) { this.live.add(this.srcCache.tex); return this.srcCache.tex; }
     if (this.srcCache) {
@@ -385,12 +486,31 @@ export class GpuRenderer {
       this.live.add(old);
       this.release(old);
     }
-    const tex = this.upload(src.width, src.height, 'u8', src.data);
+    const tex = 'image' in src ? this.uploadImage(src) : this.upload(src.width, src.height, 'u8', src.data);
     if (k) this.srcCache = { key: k, tex };
     return tex;
   }
 
-  render(src: RGBAImage, p: Params, opts: RenderOptions): RenderResult {
+  render(src: Source, p: Params, opts: RenderOptions): RenderResult {
+    return this.guarded(src, () => {
+      const { tex, text } = this.run(src, p, opts, false);
+      const gl = this.gl;
+      this.bindTarget(tex!);
+      const data = new Uint8ClampedArray(src.width * src.height * 4);
+      gl.readPixels(0, 0, src.width, src.height, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      return { width: src.width, height: src.height, data, text };
+    });
+  }
+
+  /** Like render, but draws the result into the canvas and hands it over as an ImageBitmap, with no read-back. */
+  renderBitmap(src: Source, p: Params, opts: RenderOptions): BitmapResult {
+    return this.guarded(src, () => {
+      const { text } = this.run(src, p, opts, true);
+      return { width: src.width, height: src.height, bitmap: this.canvas.transferToImageBitmap(), text };
+    });
+  }
+
+  private guarded<T>(src: Source, body: () => T): T {
     const gl = this.gl;
     if (this.lost || gl.isContextLost()) throw new GpuFailure('WebGL context lost');
     const { width: w, height: h } = src;
@@ -398,10 +518,13 @@ export class GpuRenderer {
     this.usedKeys.clear();
     for (let i = 0; i < 8 && gl.getError() !== gl.NO_ERROR; i++);
     try {
-      const r = this.run(src, p, opts);
+      const r = body();
       // WebGL reports out-of-memory and resets through error flags rather than exceptions, and then reads back zeros.
       const err = gl.getError();
-      if (gl.isContextLost() || err !== gl.NO_ERROR) throw new GpuFailure(`WebGL error 0x${err.toString(16)}`);
+      if (gl.isContextLost() || err !== gl.NO_ERROR) {
+        (r as { bitmap?: ImageBitmap }).bitmap?.close();
+        throw new GpuFailure(`WebGL error 0x${err.toString(16)}`);
+      }
       return r;
     } finally {
       this.release(...this.live);
@@ -414,7 +537,8 @@ export class GpuRenderer {
     }
   }
 
-  private run(src: RGBAImage, p: Params, opts: RenderOptions): RenderResult {
+  /** Renders into a texture (returned) or, with `toCanvas`, into the canvas (resized to fit). */
+  private run(src: Source, p: Params, opts: RenderOptions, toCanvas: boolean): { tex: Tex | null; text?: string } {
     const { width: w, height: h } = src;
     const s = w / (p.unitWidth > 0 ? p.unitWidth : (opts.targetWidth ?? w));
     const adjU = { uBright: p.brightness, uContrast: p.contrast, uSat: p.saturation, uInvG: 1 / p.gamma, uInvert: p.invert };
@@ -456,15 +580,9 @@ export class GpuRenderer {
       const cells = this.readF(cellsTex);
       this.release(cellsTex);
       const minPx = w / (opts.targetWidth ?? w);
-      const layer = glyphLayer(cells, grid, w, h, p, s, opts.createCanvas, minPx, opts.mask);
+      const layer = glyphPlan(cells, grid, p, s, opts.createCanvas, minPx, w, h, opts.mask);
       text = layer.text;
-
-      const packed = new Uint8Array(w * h * 4);
-      const { glow, alpha } = layer;
-      for (let i = 0, j = 0; i < alpha.r.length; i++, j += 4) {
-        packed[j] = glow.r[i] * 255 + 0.5; packed[j + 1] = glow.g[i] * 255 + 0.5; packed[j + 2] = glow.b[i] * 255 + 0.5; packed[j + 3] = alpha.r[i] * 255 + 0.5;
-      }
-      let glyph = this.upload(w, h, 'u8', packed);
+      let glyph = this.glyphs(layer, grid, w, h);
       if (p.glyphBlur > 0) { const b = this.blur(glyph, p.glyphBlur * s); this.release(glyph); glyph = b; }
 
       const bg = this.background(adj, p, p.bgBlur, s);
@@ -498,18 +616,39 @@ export class GpuRenderer {
     }
     this.release(glowSrc);
 
-    const fin = this.pass('final', w, h, 'u8', {
+    const finU: Record<string, Uniform> = {
       uImg: out, uComb: comb ?? out, uBloom: !!comb, uSize: [w, h], uCombSize: comb ? [comb.w, comb.h] : [w, h],
       uChrom: p.chromatic * s, uScan: p.scanlines, uScanSp: Math.max(1.5, p.scanlineSpacing * s),
       uVig: p.vignette, uVigSize: p.vignetteSize, uVigX: p.vignetteX, uVigY: p.vignetteY,
-      uGrain: p.grain, uSeed: (p.seed * 7919 + 17 + (opts.frame ?? 0) * 104729) >>> 0,
-    });
+      uGrain: p.grain, uSeed: (p.seed * 7919 + 17 + (opts.frame ?? 0) * 104729) >>> 0, uFlip: toCanvas,
+    };
+    let fin: Tex | null = null;
+    if (toCanvas) {
+      if (this.canvas.width !== w) this.canvas.width = w;
+      if (this.canvas.height !== h) this.canvas.height = h;
+      this.draw('final', w, h, finU, null);
+    } else fin = this.pass('final', w, h, 'u8', finU);
     this.release(out, comb);
-    const gl = this.gl;
-    this.bindTarget(fin);
-    const data = new Uint8ClampedArray(w * h * 4);
-    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data);
-    this.release(fin);
-    return { width: w, height: h, data, text };
+    return { tex: fin, text };
+  }
+
+  /** Draws the planned glyphs into a full-size layer: premultiplied color in rgb, coverage in a. */
+  private glyphs(plan: GlyphPlan, grid: { cw: number; ch: number; cols: number; rows: number }, w: number, h: number): Tex {
+    const { cols, rows } = grid;
+    const n = cols * rows;
+    const slots = new Float32Array(n * 4), colors = new Float32Array(n * 4);
+    for (let c = 0, j = 0; c < n; c++, j += 4) {
+      slots[j] = plan.slot[c]; slots[j + 1] = plan.x0[c]; slots[j + 2] = plan.y0[c];
+    }
+    colors.set(plan.color);
+    const slotTex = this.upload(cols, rows, 'f32', slots);
+    const colorTex = this.upload(cols, rows, 'f32', colors);
+    const atlas = plan.masks.length ? this.atlas(plan) : null;
+    const out = this.pass('glyphs', w, h, 'f16', {
+      uSlot: slotTex, uColor: colorTex, uAtlas: atlas?.tex ?? slotTex, uGrid: [cols, rows], uMask: [plan.mw, plan.mh],
+      uAtlasCols: atlas?.cols ?? 1, uCell: [grid.cw, grid.ch],
+    });
+    this.release(slotTex, colorTex);
+    return out;
   }
 }
