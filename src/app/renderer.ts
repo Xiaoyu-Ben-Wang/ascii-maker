@@ -7,7 +7,7 @@ type Exported = Extract<WorkerResponse, { type: 'exported' }>;
 type Job = Extract<WorkerRequest, { type: 'render' }>;
 type ExportJob = Extract<WorkerRequest, { type: 'export' }>;
 export type PreviewArgs = Omit<Job, 'type' | 'reqId'>;
-export type VideoExportArgs = Omit<VideoJob, 'mask'> & { sourceId: number };
+export type VideoExportArgs = Omit<VideoJob, 'mask' | 'gpu'> & { sourceId: number };
 export interface VideoProgress { progress: number; frame: number }
 export class CanceledError extends Error { constructor() { super('canceled'); } }
 
@@ -25,15 +25,18 @@ class Lane {
   private priority: string | null;
   /** True while a respawned worker is being re-seeded with sources; jobs wait in the queue. */
   paused = false;
+  private gpu = true;
 
-  constructor(onCrash: () => void, priority: string | null = null) {
+  constructor(onCrash: () => void, priority: string | null = null, gpu = true) {
     this.onCrash = onCrash;
     this.priority = priority;
+    this.gpu = gpu;
     this.spawn();
   }
 
   private spawn() {
     this.worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
+    this.worker.postMessage({ type: 'gpu', enabled: this.gpu } satisfies WorkerRequest);
     this.worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
       const cb = this.waiters.get(e.data.reqId);
       this.waiters.delete(e.data.reqId);
@@ -50,6 +53,11 @@ class Lane {
       for (const [reqId, cb] of waiting) cb({ type: 'error', reqId, message: 'renderer crashed' });
       this.onCrash();
     };
+  }
+
+  setGpu(enabled: boolean) {
+    this.gpu = enabled;
+    this.post({ type: 'gpu', enabled });
   }
 
   terminate() {
@@ -122,12 +130,15 @@ export class Renderer {
   private onRestart: () => void;
 
   /** `onRestart` runs after a crashed worker has been re-seeded; callers should re-request their renders. */
-  constructor(onRestart: () => void) {
+  private gpu: boolean;
+
+  constructor(onRestart: () => void, gpu = true) {
     this.onRestart = onRestart;
-    this.main = new Lane(() => this.reseed(this.main, true), Renderer.MAIN);
+    this.gpu = gpu;
+    this.main = new Lane(() => this.reseed(this.main, true), Renderer.MAIN, gpu);
     const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 2));
     this.pool = Array.from({ length: n }, (_, i) => {
-      const lane: Lane = new Lane(() => this.reseed(lane, false, i));
+      const lane: Lane = new Lane(() => this.reseed(lane, false, i), null, gpu);
       return lane;
     });
   }
@@ -161,6 +172,13 @@ export class Renderer {
 
   private lane(sourceId: number) {
     return this.pool[sourceId % this.pool.length];
+  }
+
+  /** Turns GPU rendering on or off in every worker; callers re-request their renders afterwards. */
+  setGpu(enabled: boolean) {
+    this.gpu = enabled;
+    this.main.setGpu(enabled);
+    this.pool.forEach((l) => l.setGpu(enabled));
   }
 
   /** Copies are made from `bitmap`; the caller keeps ownership and must call dropSource before closing it. */
@@ -224,7 +242,7 @@ export class Renderer {
         else { stop(); reject(new Error(d.message)); }
       };
       worker.onerror = (e) => { e.preventDefault(); stop(); reject(new Error(e.message || 'video export crashed')); };
-      worker.postMessage({ ...job, mask } satisfies VideoJob);
+      worker.postMessage({ ...job, mask, gpu: this.gpu } satisfies VideoJob);
     });
   }
 }

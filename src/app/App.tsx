@@ -1,5 +1,5 @@
 import {
-  Braces, BookmarkPlus, Brush, ClipboardPaste, Columns2, Copy, Download, ImageUp, LayoutGrid, Redo2, RotateCcw, Settings2, Square, Terminal, Trash2, Undo2, X,
+  Braces, BookmarkPlus, Brush, ClipboardPaste, Columns2, Copy, Cpu, Download, ImageUp, LayoutGrid, Redo2, RotateCcw, Settings2, Square, Terminal, Trash2, Undo2, X,
 } from 'lucide-react';
 import { Tooltip } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,6 +18,7 @@ import { zip } from './zip.ts';
 
 const STORE_KEY = 'ascii-maker:v2';
 const USER_PRESETS_KEY = 'ascii-maker:presets';
+const GPU_KEY = 'ascii-maker:gpu';
 const CUSTOM = 'custom';
 /** Saved presets live under this prefix so they never collide with built-in names. */
 const USER = 'user:';
@@ -36,7 +37,7 @@ const FORMATS = [
   { value: 'image/webp', label: 'WebP' },
 ];
 
-interface Result { id: number; bitmap: ImageBitmap; text?: string; ms: number }
+interface Result { id: number; bitmap: ImageBitmap; text?: string; ms: number; gpu: boolean }
 
 function loadStored(): { preset: string; params: Params } {
   try {
@@ -111,6 +112,8 @@ export function App() {
   const [renderer, setRenderer] = useState<Renderer | null>(null);
   /** Bumped after a crashed render worker recovers, so every view re-requests its render. */
   const [gen, setGen] = useState(0);
+  const [gpu, setGpu] = useState(() => { try { return localStorage.getItem(GPU_KEY) !== '0'; } catch { return true; } });
+  const gpuRef = useRef(gpu);
   const imagesRef = useRef(images);
   imagesRef.current = images;
   const paramsRef = useRef(params);
@@ -150,7 +153,7 @@ export function App() {
     const r = new Renderer(() => {
       notify('Renderer restarted');
       setGen((g) => g + 1);
-    });
+    }, gpuRef.current);
     for (const img of imagesRef.current) {
       r.addSource(img.id, img.bitmap);
       const m = masks.current.get(img.id)?.read();
@@ -377,7 +380,7 @@ export function App() {
         if (!res || cancelled) { res?.bitmap.close(); return; }
         setResult((prev) => {
           if (prev && prev.bitmap !== res.bitmap) prev.bitmap.close();
-          return { id, bitmap: res.bitmap, text: res.text, ms: res.ms };
+          return { id, bitmap: res.bitmap, text: res.text, ms: res.ms, gpu: res.gpu };
         });
       });
     }, params === renderedParams.current ? 0 : 100);
@@ -614,6 +617,18 @@ export function App() {
                 {active && painted.current.has(active.id) && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-accent" aria-hidden />}
               </Button>
             </Tip>
+            <Tip label={gpu ? 'Hardware acceleration on: rendering uses the GPU' : 'Hardware acceleration off: rendering uses the CPU'}>
+              <Button size="icon" aria-label="Hardware acceleration" aria-pressed={gpu}
+                className={cx(gpu && 'text-accent')}
+                onClick={() => {
+                  const v = !gpu;
+                  setGpu(v);
+                  gpuRef.current = v;
+                  try { localStorage.setItem(GPU_KEY, v ? '1' : '0'); } catch { /* storage unavailable */ }
+                  renderer?.setGpu(v);
+                  setGen((g) => g + 1);
+                }}><Cpu className="size-4" /></Button>
+            </Tip>
           </div>
 
           {images.length > 0 && (
@@ -654,7 +669,7 @@ export function App() {
               {shown && (
                 <>
                   <span className="h-3 w-px shrink-0 bg-line max-sm:hidden" />
-                  <span className="shrink-0 max-sm:hidden">{Math.round(shown.ms)} ms</span>
+                  <span className="shrink-0 max-sm:hidden">{Math.round(shown.ms)} ms · {shown.gpu ? 'GPU' : 'CPU'}</span>
                 </>
               )}
             </div>

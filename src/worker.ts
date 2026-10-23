@@ -1,5 +1,6 @@
 // Runs the engine off the main thread. Each source bitmap is sent once; renders come back as transferable bitmaps.
-import { RenderCache, render, type HighlightMask, type Params } from './engine/index.ts';
+import { gpuOrCpu } from './engine/gpu.ts';
+import { RenderCache, type HighlightMask, type Params } from './engine/index.ts';
 import { encodePng } from './engine/png.ts';
 
 /** Region of the source to use, in source pixels. */
@@ -9,12 +10,13 @@ export type WorkerRequest =
   | { type: 'source'; sourceId: number; bitmap: ImageBitmap }
   | { type: 'drop'; sourceId: number }
   | { type: 'mask'; sourceId: number; mask: HighlightMask | null }
+  | { type: 'gpu'; enabled: boolean }
   | { type: 'render'; reqId: number; sourceId: number; width: number; height: number; crop: Crop; targetWidth: number; params: Params }
   | { type: 'export'; reqId: number; sourceId: number; width: number; height: number; crop: Crop; params: Params; mime: string; quality: number; pngLevel: number };
 
 export type WorkerResponse =
-  | { type: 'rendered'; reqId: number; bitmap: ImageBitmap; text?: string; ms: number }
-  | { type: 'exported'; reqId: number; blob: Blob; width: number; height: number; text?: string; ms: number }
+  | { type: 'rendered'; reqId: number; bitmap: ImageBitmap; text?: string; ms: number; gpu: boolean }
+  | { type: 'exported'; reqId: number; blob: Blob; width: number; height: number; text?: string; ms: number; gpu: boolean }
   | { type: 'error'; reqId: number; message: string };
 
 const sources = new Map<number, ImageBitmap>();
@@ -55,6 +57,9 @@ function sourceAt(id: number, width: number, height: number, crop: Crop): ImageD
 
 const createCanvas = (w: number, h: number) => new OffscreenCanvas(w, h);
 
+let gpuEnabled = true;
+const renderAny = gpuOrCpu();
+
 /** The source's mask with the crop mapped into mask pixels (the mask spans the whole source). */
 function maskFor(id: number, crop: Crop): HighlightMask | undefined {
   const m = masks.get(id), src = sources.get(id);
@@ -88,6 +93,10 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
     else masks.delete(msg.sourceId);
     return;
   }
+  if (msg.type === 'gpu') {
+    gpuEnabled = msg.enabled;
+    return;
+  }
   if (msg.type === 'drop') {
     sources.get(msg.sourceId)?.close();
     sources.delete(msg.sourceId);
@@ -103,16 +112,16 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
     const mask = maskFor(msg.sourceId, msg.crop);
     if (msg.type === 'render') {
       const sourceKey = `${msg.sourceId}.${versions.get(msg.sourceId) ?? 0}:${msg.crop.x},${msg.crop.y},${msg.crop.w},${msg.crop.h}`;
-      const r = render(img, msg.params, { createCanvas, targetWidth: msg.targetWidth, cache, sourceKey, mask });
+      const { r, gpu: onGpu } = renderAny(img, msg.params, { createCanvas, targetWidth: msg.targetWidth, cache, sourceKey, mask }, gpuEnabled);
       const bitmap = toCanvas(r.data, r.width, r.height).transferToImageBitmap();
-      post({ type: 'rendered', reqId: msg.reqId, bitmap, text: r.text, ms: performance.now() - t0 }, [bitmap]);
+      post({ type: 'rendered', reqId: msg.reqId, bitmap, text: r.text, ms: performance.now() - t0, gpu: onGpu }, [bitmap]);
     } else {
-      const r = render(img, msg.params, { createCanvas, mask });
+      const { r, gpu: onGpu } = renderAny(img, msg.params, { createCanvas, mask }, gpuEnabled);
       forget(keyOf(msg.sourceId, msg.width, msg.height, msg.crop)); // full-size buffers are large; don't keep them around
       const blob = msg.mime === 'image/png'
         ? new Blob([encodePng(r.data, r.width, r.height, msg.pngLevel) as Uint8Array<ArrayBuffer>], { type: 'image/png' })
         : await toCanvas(r.data, r.width, r.height).convertToBlob({ type: msg.mime, quality: msg.quality });
-      post({ type: 'exported', reqId: msg.reqId, blob, width: r.width, height: r.height, text: r.text, ms: performance.now() - t0 });
+      post({ type: 'exported', reqId: msg.reqId, blob, width: r.width, height: r.height, text: r.text, ms: performance.now() - t0, gpu: onGpu });
     }
   } catch (err) {
     post({ type: 'error', reqId: msg.reqId, message: err instanceof Error ? err.message : String(err) });

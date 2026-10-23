@@ -1,12 +1,13 @@
 // Renders every frame of a video with the engine and encodes the result. One worker per export; terminate it to cancel.
 import * as mb from 'mediabunny';
 import { inputFormats } from './app/video.ts';
-import { lockPalette, render, type HighlightMask, type Params } from './engine/index.ts';
+import { gpuOrCpu } from './engine/gpu.ts';
+import { lockPalette, type HighlightMask, type Params } from './engine/index.ts';
 import type { Crop } from './worker.ts';
 
 export interface VideoJob {
   file: File; width: number; height: number; crop: Crop; params: Params; mask?: HighlightMask;
-  format: 'mp4' | 'webm'; audio: boolean;
+  format: 'mp4' | 'webm'; audio: boolean; gpu: boolean;
 }
 
 export type VideoWorkerMessage =
@@ -16,6 +17,7 @@ export type VideoWorkerMessage =
 
 const post = (msg: VideoWorkerMessage) => (self as unknown as Worker).postMessage(msg);
 const createCanvas = (w: number, h: number) => new OffscreenCanvas(w, h);
+const renderAny = gpuOrCpu();
 
 self.onmessage = async (e: MessageEvent<VideoJob>) => {
   const job = e.data;
@@ -42,7 +44,7 @@ self.onmessage = async (e: MessageEvent<VideoJob>) => {
           const img = src.getImageData(0, 0, w, h);
           // The first frame fixes an "auto" dither palette so colors don't flicker frame to frame.
           locked ??= lockPalette(img, job.params);
-          const r = render(img, locked, { createCanvas, mask: job.mask, frame: frame++ });
+          const { r } = renderAny(img, locked, { createCanvas, mask: job.mask, frame: frame++ }, job.gpu);
           const data = new ImageData(r.data as Uint8ClampedArray<ArrayBuffer>, r.width, r.height);
           if (r.width === w && r.height === h) outCtx.putImageData(data, 0, 0);
           else outCtx.drawImage(canvasOf(data), 0, 0, w, h);

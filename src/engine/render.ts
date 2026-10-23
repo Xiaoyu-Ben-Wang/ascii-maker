@@ -188,17 +188,53 @@ function cellAverages(img: FImage, cols: number, rows: number, cw: number, ch: n
   return out;
 }
 
-function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, memo: Memo, highlightMask?: HighlightMask) {
-  const { width: w, height: h } = img;
+export interface CellGrid { cw: number; ch: number; cols: number; rows: number }
 
-  const bg = background(img, p, s, memo);
-
+export function cellGrid(w: number, h: number, p: Params, s: number): CellGrid {
   const ch = Math.max(2, p.cellSize * s);
   // Monospace glyphs are ~0.6 as wide as tall; other styles use square cells.
   const cw = p.style === 'characters' ? Math.max(2, ch * 0.6) : ch;
-  const cols = Math.ceil(w / cw);
-  const rows = Math.ceil(h / ch);
+  return { cw, ch, cols: Math.ceil(w / cw), rows: Math.ceil(h / ch) };
+}
+
+function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, memo: Memo, highlightMask?: HighlightMask) {
+  const { width: w, height: h } = img;
+  const bg = background(img, p, s, memo);
+  const grid = cellGrid(w, h, p, s);
+  const { cw, ch, cols, rows } = grid;
   const cells = memo(`cells:${cols}x${rows},${cw},${ch}`, () => cellAverages(img, cols, rows, cw, ch));
+  const layer = glyphLayer(cells, grid, w, h, p, s, createCanvas, minPx, highlightMask);
+  let { glow, alpha } = layer;
+
+  const out = bg;
+  if (p.coverage !== 'full' && (p.haloDim > 0 || p.haloBlur > 0)) halo(out, img, layer.cover, cols, rows, cw, ch, p, s, memo);
+  if (p.glyphBlur > 0) {
+    glow = blur(glow, p.glyphBlur * s);
+    alpha = blur(alpha, p.glyphBlur * s);
+  }
+  for (let i = 0; i < out.r.length; i++) {
+    const a = alpha.r[i];
+    if (a === 0) continue;
+    out.r[i] = out.r[i] * (1 - a) + glow.r[i];
+    out.g[i] = out.g[i] * (1 - a) + glow.g[i];
+    out.b[i] = out.b[i] * (1 - a) + glow.b[i];
+  }
+  return { out, glow, text: layer.text };
+}
+
+export interface GlyphLayer {
+  /** Glyph colors, premultiplied by their coverage. */
+  glow: FImage;
+  /** Glyph coverage, in `r`. */
+  alpha: FImage;
+  /** Glyph opacity per cell. */
+  cover: Float32Array;
+  text?: string;
+}
+
+/** Picks a glyph per cell from the cell averages and stamps them into full-resolution color and alpha layers. */
+export function glyphLayer(cells: FImage, grid: CellGrid, w: number, h: number, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, highlightMask?: HighlightMask): GlyphLayer {
+  const { cw, ch, cols, rows } = grid;
   const lum = new Float32Array(cols * rows);
   for (let i = 0; i < lum.length; i++) lum[i] = luma(cells.r[i], cells.g[i], cells.b[i]);
   // Brightness as the threshold and glyph choice see it; the glyph colors still come from the cells.
@@ -233,8 +269,8 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
   const LEVELS = 24;
   const level = (t: number) => Math.round(clamp01(t) * LEVELS) / LEVELS;
 
-  let glow = createF(w, h);
-  let alpha = createF(w, h);
+  const glow = createF(w, h);
+  const alpha = createF(w, h);
   const gr = glow.r, gg = glow.g, gb = glow.b, al = alpha.r;
   const stamp = (m: Float32Array, mx: number, my: number, r: number, g: number, b: number, a: number) => {
     const x0 = Math.round(mx - mw / 2), y0 = Math.round(my - mh / 2);
@@ -350,21 +386,7 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
     textRows.push(line.replace(/\s+$/, ''));
   }
 
-  const out = bg;
-  if (!full && (p.haloDim > 0 || p.haloBlur > 0)) halo(out, img, cover, cols, rows, cw, ch, p, s, memo);
-  if (p.glyphBlur > 0) {
-    glow = blur(glow, p.glyphBlur * s);
-    alpha = blur(alpha, p.glyphBlur * s);
-  }
-  for (let i = 0; i < out.r.length; i++) {
-    const a = alpha.r[i];
-    if (a === 0) continue;
-    out.r[i] = out.r[i] * (1 - a) + glow.r[i];
-    out.g[i] = out.g[i] * (1 - a) + glow.g[i];
-    out.b[i] = out.b[i] * (1 - a) + glow.b[i];
-  }
-
-  return { out, glow, text: p.style === 'characters' ? textRows.join('\n') : undefined };
+  return { glow, alpha, cover, text: p.style === 'characters' ? textRows.join('\n') : undefined };
 }
 
 /** Dims and/or blurs the photo only near glyphs, so the rest of the image stays as it is. */
