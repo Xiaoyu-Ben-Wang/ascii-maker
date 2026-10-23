@@ -54,14 +54,16 @@ A mouse wheel and a trackpad both send "wheel" events, so the editor tells them 
 
 ### The settings panel
 
-Pick a preset from the menu at the top, then adjust the sections below it. Hover any label to see what it does; a dot and a reset arrow mark values you changed from the preset, and double-clicking a slider label resets it. Undo and redo (`Ctrl+Z` / `Ctrl+Shift+Z`) cover every setting change.
+Pick a preset from the menu at the top, then adjust the sections below it. Hover any label to see what it does; a dot and a reset arrow mark values you changed from the preset, and double-clicking a slider label resets it. Less-used settings sit behind **More options** at the bottom of their section; any you change from the preset stay in view. Undo and redo (`Ctrl+Z` / `Ctrl+Shift+Z`) cover every setting change.
 
 | Section | What it controls |
 | --- | --- |
-| **Highlight styling** | The style (ASCII, cross, diagonal, dots, lines, dither), cell size, character set, and which parts of the image get glyphs (coverage, threshold, fade-in, what counts as bright). For dither: algorithm, palette, color count, pixel size |
-| **Glyph color** | Source colors or one mono color, whitening, brightness, opacity and softness of the glyphs |
-| **Background image** | The photo under the glyphs: background color, opacity, blur, and dimming or blurring only near the glyphs |
-| **Glow, Scanlines, Vignette, Color fringe, Grain, Blur** | Post effects; each has an on/off switch |
+| **Glyphs** | The style (ASCII, cross, diagonal, dots, lines, dither), cell size, character set, and which parts of the image get glyphs (coverage, the threshold's lower and upper ends; under More options: what counts as bright, fade). For dither: algorithm, palette, color count, pixel size. Its switch turns glyphs off, leaving the photo with its effects |
+| **Glyph color** | Source colors or one mono color, whitening, brightness, opacity and glyph softness |
+| **Background** | The photo under the glyphs: background color, photo opacity and photo blur |
+| **Around glyphs** | Darken or brighten, and blur, the photo only around the glyphs, and how far that spreads |
+| **Bloom**, **Vignette** | Light bleeding around bright parts, and darkening toward the edges; each has an on/off switch |
+| **Effects** | Scanlines, color fringe, grain and a final blur, each with its own switch |
 | **Adjust photo** | Brightness, contrast, saturation, gamma and invert, applied before anything else |
 | **Advanced** | Font, random seed, and the unit width that sizes are measured against |
 
@@ -123,6 +125,7 @@ Press `\` (or the split button) for a before/after divider you can drag, or hold
 | `dither` | Plain Floyd–Steinberg dither in colors picked from the image |
 | `scanlines` | The photo with CRT scanlines |
 | `matrix` | Green mono ASCII on black |
+| `ascii-surround` | Everything but the brightest subject becomes ASCII; the subject stays a photo |
 
 **Character sets** (`characters` style): pick one in the editor or by name with `--charset`, or type your own characters from dark to bright.
 
@@ -142,21 +145,23 @@ Press `\` (or the split button) for a before/after divider you can drag, or hold
 
 ## Where glyphs appear
 
-With **Coverage: highlights** (the default), glyphs are drawn only on cells brighter than the **Threshold**, and **Fade-in** lets them grow in gradually just above it instead of popping in. **Bright means** decides what "brighter" is measured against:
+With **Coverage: highlights** (the default), glyphs are drawn only on cells brighter than the **Threshold**, and **Fade** lets them grow in gradually just above it instead of popping in.
+
+The threshold has two ends. Lower the upper one (1 by default, meaning no upper end) to leave the brightest cells bare as well, so glyphs go only on a band of brightness: a bright boat on a dark sea can stay a photo while the sea around it turns to ASCII. Fade softens the upper end too, and the whole character set spans the band, so the densest glyphs sit just below the upper end. A lower end of 0 means no lower end: even black cells get glyphs. For the boat look, pair a band like `0`–`0.8` with **Bright means: relative** and **Around glyphs → Darken / brighten** at −1, so the photo shows only where there are no glyphs; the `ascii-surround` preset does this. On the command line the upper end is `--threshold-high`. **Bright means** decides what "brighter" is measured against:
 
 - **absolute**: the cell's own brightness. Simple, but a bright photo can end up covered in glyphs.
-- **relative**: the cell's rank within the image, so the threshold becomes the share left bare (`0.7` puts glyphs on the brightest 30%).
+- **relative**: the cell's rank within the image, so the threshold becomes the share left bare (`0.7` puts glyphs on the brightest 30%). Cells of the same brightness share the middle rank of their group, so a flat area isn't treated as the brightest part.
 - **local**: the cell compared with its surroundings (**Surroundings** sets how far), so flat bright areas such as sky stay bare while edges and details light up.
 
-**Coverage: full** puts a glyph on every cell and ignores the threshold; pair it with background opacity 0 for classic ASCII art, as `full-ascii` and `full-cross` do. For anything the threshold gets wrong, paint over it with the [mask brush](#painting-where-glyphs-go).
+**Coverage: full** puts a glyph on every cell and ignores both ends of the threshold; pair it with background opacity 0 for classic ASCII art, as `full-ascii` and `full-cross` do. For anything the threshold gets wrong, paint over it with the [mask brush](#painting-where-glyphs-go).
 
 ## Background
 
 Glyph styles draw over a copy of the photo:
 
-- **Opacity** fades the whole photo toward the **Background color** (black by default); 0 leaves only that color. With coverage full the photo is hidden, so the background color moves up to the Highlight styling section, next to Coverage.
-- **Blur** softens the whole photo.
-- **Dim near glyphs** and **Blur near glyphs** do the same only around the glyphs, so the glyphs stand out while the rest of the photo stays bright and sharp. **Spread** sets how far around the glyphs that reaches, in cells. Combine them freely: blur alone gives a glowing look, dim alone a dark outline, both a soft shadow. The `cross`, `diagonal` and `dots` presets use both, at blur 14 and dim 0.2, with the photo otherwise at full opacity; `sharp-ascii` uses only the dim (0.2) and `soft-ascii` only the blur (9).
+- **Opacity** fades the whole photo toward the **Background color** (black by default); 0 leaves only that color. With coverage full the photo is hidden, so the background color moves up to the Glyphs section, next to Coverage.
+- **Photo blur** softens the whole photo.
+- The **Around glyphs** section changes the photo only around the glyphs, so the glyphs stand out while the rest of the photo stays as it is. **Darken / brighten** runs from −1 to 1 and starts at 0 (off): below 0 it fades the photo toward the background color, above 0 it brightens it in its own colors. **Blur** softens it there. **Spread** sets how far around the glyphs these reach, in cells. Combine them freely: blur alone gives a soft look, darkening alone a dark outline, darkening and blur a soft shadow, brightening and blur a halo of light. The `cross`, `diagonal` and `dots` presets use blur 14 and darken −0.2, with the photo otherwise at full opacity; `sharp-ascii` uses only the darkening (−0.2) and `soft-ascii` only the blur (9). On the command line it is `--halo-tone`; the old `--halo-dim 0.4` still works and means `--halo-tone -0.4`.
 
 ## Effects
 
@@ -164,14 +169,14 @@ Applied after the glyphs, in this order:
 
 | Effect | Does |
 | --- | --- |
-| Blur | Blurs the finished image |
-| Glow (bloom) | Halo around bright glyphs (or bright pixels for dither and photo) |
+| Final blur | Blurs the finished image |
+| Bloom | Light bleeding around bright glyphs (or bright pixels for dither and photo); **Bloom from** sets how bright a part must be |
 | Color fringe | Shifts red and blue apart toward the edges, like a cheap lens |
 | Scanlines | Dark horizontal CRT lines |
 | Vignette | Darkens toward the edges; **Size** sets how much of the center stays clear, and you pick the center on the image |
 | Grain | Film noise |
 
-There are three kinds of blur: the background blur (under the glyphs), glyph softness (the glyphs only) and the Blur effect (everything).
+There are four kinds of blur: **Photo blur** (the photo under the glyphs), **Around glyphs → Blur** (the photo near the glyphs), **Glyph softness** (the glyphs only) and **Final blur** (everything).
 
 Sizes such as cell size, blur and glow radius are measured on a 1920 px-wide image and scale with the output, so a 4K export looks like the preview, only sharper. Set **Unit width** to 0 to use absolute pixels.
 
@@ -181,7 +186,7 @@ Sizes such as cell size, blur and glow radius are measured on a 1920 px-wide ima
 node cli/ascii-maker.ts photo.jpg -p soft-ascii -o out.png
 node cli/ascii-maker.ts photo.jpg -p dither-scanline --dither-algo atkinson --palette pico8 -o out.png
 node cli/ascii-maker.ts photo.jpg --style cross --cell-size 18 --bloom 0.8 --size 4k -o out.jpg
-node cli/ascii-maker.ts photo.jpg -p sharp-ascii --bg-opacity 1 --halo-dim 0.45 --halo-blur 14 -o out.png
+node cli/ascii-maker.ts photo.jpg -p sharp-ascii --bg-opacity 1 --halo-tone -0.45 --halo-blur 14 -o out.png
 node cli/ascii-maker.ts photo.jpg -p soft-ascii --mask mask.png -o out.png
 node cli/ascii-maker.ts photos/*.jpg -p diagonal --size 1080p -o out/     # batch into a folder
 node cli/ascii-maker.ts clip.mp4 -p soft-ascii --size 1080p -o clip-ascii.mp4
@@ -223,17 +228,17 @@ Every render runs the same pipeline (`src/engine/render.ts`), in floating point 
 
 3. **Brightness per cell.** Each cell's luminance (Rec. 709 weights) is turned into a highlight level according to **Bright means**: used as is (absolute); replaced by its rank among all cells (relative); or compared with a blurred copy of the luminance grid as 0.25 × luminance + 2.5 × (luminance − surroundings), so a cell counts as bright when it stands out from its neighborhood (local).
 
-4. **Glyph strength and choice.** A cell's opacity is a smoothstep from the threshold to threshold + fade-in × (1 − threshold), so glyphs fade in rather than switch on. Its level above the threshold, rescaled to 0–1, picks the glyph: an index into the character set, the arm length of a cross, the radius of a dot, the length of a stroke. In full coverage the threshold is 0 and the whole character set (including its leading space) spans the brightness range. A painted mask is sampled at each cell center: adding raises the opacity up to the glyph opacity setting and lets the glyph follow the cell's own brightness; removing scales the opacity down to zero.
+4. **Glyph strength and choice.** A cell's opacity is a smoothstep from the threshold to threshold + fade × (1 − threshold), so glyphs fade in rather than switch on (a threshold of 0 skips this). With an upper end below 1, the opacity is also multiplied by one minus a smoothstep from the upper end to upper end + fade × (1 − upper end). Its level between the two ends, rescaled to 0–1, picks the glyph: an index into the character set, the arm length of a cross, the radius of a dot, the length of a stroke. In full coverage the threshold is 0 and the whole character set (including its leading space) spans the brightness range. A painted mask is sampled at each cell center: adding raises the opacity up to the glyph opacity setting and lets the glyph follow the cell's own brightness; removing scales the opacity down to zero.
 
 5. **Drawing glyphs.** Each distinct glyph shape is drawn once on a canvas into an alpha mask (an atlas), with sizes rounded to 24 steps so a handful of masks cover every brightness. Every cell then stamps its mask into a glyph layer in plain JavaScript, which is much faster than drawing thousands of shapes through the canvas. The glyph color is the cell color (or the mono color), mixed toward white by **Whiten** and multiplied by **Brightness**. **Diagonal** in `edge` mode runs a Sobel filter over a smoothed luminance grid and draws each stroke along the edge, perpendicular to the gradient.
 
-6. **Background.** The photo is blurred (a three-pass box blur that approximates a Gaussian, run on a downscaled copy for large radii) and mixed toward the background color by the opacity. For **Dim / Blur near glyphs**, the grid of glyph opacities is blurred by the spread (in cells), scaled up to the image, and used as a mask: inside it the photo is mixed toward a more blurred copy and toward the background color.
+6. **Background.** The photo is blurred (a three-pass box blur that approximates a Gaussian, run on a downscaled copy for large radii) and mixed toward the background color by the opacity. For the **Around glyphs** settings, the grid of glyph opacities is blurred by the spread (in cells), scaled up to the image, and used as a mask: inside it the photo is mixed toward a more blurred copy, then toward the background color (darken) or toward 1 − (1 − c)³ of its own color c (brighten).
 
 7. **Composite.** The glyph layer (optionally softened) is blended over the background by its alpha.
 
 8. **Dither** (instead of steps 2–7). The image is pre-blurred and shrunk to the pixel size, so each block averages its pixels instead of sampling one, then reduced to the palette. Error-diffusion algorithms carry each pixel's rounding error to its unprocessed neighbors with their own weights (Floyd–Steinberg: 7/16 right, 3/16, 5/16 and 1/16 on the next row). Ordered algorithms compare each pixel with a repeating threshold matrix (Bayer) or pattern. **Strength** scales the error or pattern. The `auto` palette runs k-means clustering on the image colors. The result is scaled back up with hard pixel edges.
 
-9. **Post effects**, in the order listed under [Effects](#effects). Glow keeps the parts above its threshold, blurs them at two radii (a tight halo plus a wide haze, at half resolution) and adds them back through a soft shoulder curve, so blown highlights roll off smoothly instead of clipping. For glyph styles the glow comes from the glyph layer only, so the background doesn't bloom.
+9. **Post effects**, in the order listed under [Effects](#effects). Bloom keeps the parts above its threshold (Bloom from), blurs them at two radii (a tight halo plus a wide haze, at half resolution) and adds them back through a soft shoulder curve, so blown highlights roll off smoothly instead of clipping. For glyph styles the bloom comes from the glyph layer only, so the background doesn't bloom.
 
 **Speed.** In the editor, rendering runs in Web Workers. One worker holds the full-resolution images for the preview and exports, and a small pool renders the All-view thumbnails in parallel from downscaled copies. While a slider moves, the editor first renders a half-resolution draft, then the full preview once you stop; intermediate results (adjusted image, blurred background, cell averages) are cached, so changing a glyph setting doesn't redo the blurs. With GPU rendering on (the default), the pixel passes and the glyph drawing run as WebGL2 shaders; only glyph choice and error-diffusion dithering stay on the CPU. Previews go from the GPU to the screen without being read back, and video frames are uploaded, rendered and handed to the encoder the same way. The CLI runs the same engine on `@napi-rs/canvas`, and spreads video frames across worker threads.
 

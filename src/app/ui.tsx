@@ -84,19 +84,82 @@ function StepButton({ dir, label, disabled, onClick }: { dir: -1 | 1; label: str
   return (
     <button
       type="button" tabIndex={-1} aria-label={`${dir < 0 ? 'Decrease' : 'Increase'} ${label}`} disabled={disabled} onClick={onClick}
-      className="press grid size-4 shrink-0 place-items-center rounded text-faint hover:bg-white/[0.06] hover:text-fg disabled:pointer-events-none disabled:opacity-30"
+      // With a mouse the arrows appear on hover, keeping the panel calm; on touch screens they stay as tap targets.
+      className="press grid size-4 shrink-0 place-items-center rounded text-faint transition-opacity duration-150 hover:bg-white/[0.06] hover:text-fg disabled:pointer-events-none disabled:opacity-30 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:disabled:group-hover:opacity-30"
     >
       <Icon className="size-3" />
     </button>
   );
 }
 
+/** A slider's value as editable text: typing a number and pressing Enter (or leaving the field) applies it. */
+function ValueInput({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft !== null) {
+      const n = Number(draft);
+      if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)));
+    }
+    setDraft(null);
+  };
+  return (
+    <input
+      aria-label={label}
+      className="w-12 rounded bg-transparent px-1 text-right font-mono text-[11px] text-muted tabular-nums outline-none hover:bg-white/[0.05] focus:bg-white/[0.07] focus:text-fg"
+      value={draft ?? fmt(value, step)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        if (e.key === 'Escape') { setDraft(null); (e.target as HTMLInputElement).blur(); }
+      }}
+    />
+  );
+}
+
+const THUMB = 'block size-3.5 rounded-full bg-fg shadow-[0_1px_4px_rgb(0_0_0/0.5)] outline-none transition-[box-shadow,transform] duration-150 focus-visible:ring-4 focus-visible:ring-accent/30 active:scale-110';
+
+/** Label + two editable values + a two-thumb slider for a low..high band. */
+export const RangeField = memo(function RangeField(props: {
+  label: string; value: [number, number]; min: number; max: number; step: number; hint?: string; modified?: boolean;
+  /** Names of the two ends, for screen readers and the value fields. */
+  ends: [string, string];
+  onChange: (v: [number, number]) => void; onReset?: () => void;
+}) {
+  const { label, value: [lo, hi], min, max, step, hint, modified, ends, onChange, onReset } = props;
+  return (
+    <div className="group py-1.5">
+      <div className="mb-1.5 flex items-center justify-between gap-1">
+        <Label text={label} hint={hint} modified={modified} onReset={onReset} />
+        <span className="flex-1" />
+        <ResetButton show={modified} onReset={onReset} label={label} />
+        <ValueInput label={`${label} ${ends[0]}`} value={lo} min={min} max={hi} step={step} onChange={(v) => onChange([v, hi])} />
+        <span className="font-mono text-[11px] text-faint">–</span>
+        <ValueInput label={`${label} ${ends[1]}`} value={hi} min={lo} max={max} step={step} onChange={(v) => onChange([lo, v])} />
+      </div>
+      <div className="flex items-center gap-1 px-5">
+        <Sl.Root className="relative flex h-4 min-w-0 flex-1 touch-none items-center select-none" value={[lo, hi]} min={min} max={max} step={step}
+          onValueChange={([a, b]) => onChange([a, b])}>
+          <Sl.Track className="relative h-[3px] grow overflow-hidden rounded-full bg-white/[0.09]">
+            <Sl.Range className="absolute h-full rounded-full bg-gradient-to-r from-accent/50 to-accent" />
+          </Sl.Track>
+          <Sl.Thumb aria-label={`${label} ${ends[0]}`} className={THUMB} />
+          <Sl.Thumb aria-label={`${label} ${ends[1]}`} className={THUMB} />
+        </Sl.Root>
+      </div>
+    </div>
+  );
+});
+
 /** Label + editable value + slider. Double-click the label (or click the arrow) to reset. */
 export const SliderField = memo(function SliderField(props: {
   label: string; value: number; min: number; max: number; step: number; hint?: string; modified?: boolean;
+  /** Fill the track from this value (e.g. 0 on a -1..1 slider) instead of from the minimum. */
+  origin?: number;
   onChange: (v: number) => void; onReset?: () => void;
 }) {
-  const { label, value, min, max, step, hint, modified, onChange, onReset } = props;
+  const { label, value, min, max, step, hint, modified, origin, onChange, onReset } = props;
+  const pct = (v: number) => ((v - min) / (max - min)) * 100;
   const [draft, setDraft] = useState<string | null>(null);
   const nudge = (dir: -1 | 1) => {
     const v = Math.min(max, Math.max(min, value + dir * jumpFor(min, max, step)));
@@ -131,8 +194,14 @@ export const SliderField = memo(function SliderField(props: {
         <StepButton dir={-1} label={label} disabled={value <= min} onClick={() => nudge(-1)} />
         <Sl.Root className="relative flex h-4 min-w-0 flex-1 touch-none items-center select-none" value={[value]} min={min} max={max} step={step} onValueChange={([v]) => onChange(v)}>
           <Sl.Track className="relative h-[3px] grow overflow-hidden rounded-full bg-white/[0.09]">
-            <Sl.Range className="absolute h-full rounded-full bg-gradient-to-r from-accent/50 to-accent" />
+            {origin === undefined
+              ? <Sl.Range className="absolute h-full rounded-full bg-gradient-to-r from-accent/50 to-accent" />
+              : <span className={cx('absolute h-full rounded-full from-accent/50 to-accent', value < origin ? 'bg-gradient-to-l' : 'bg-gradient-to-r')}
+                  style={{ left: `${pct(Math.min(origin, value))}%`, width: `${Math.abs(pct(value) - pct(origin))}%` }} />}
           </Sl.Track>
+          {origin !== undefined && (
+            <span aria-hidden className="pointer-events-none absolute top-1/2 h-2 w-px -translate-y-1/2 bg-white/25" style={{ left: `${pct(origin)}%` }} />
+          )}
           <Sl.Thumb aria-label={label} className="block size-3.5 rounded-full bg-fg shadow-[0_1px_4px_rgb(0_0_0/0.5)] outline-none transition-[box-shadow,transform] duration-150 focus-visible:ring-4 focus-visible:ring-accent/30 active:scale-110" />
         </Sl.Root>
         <StepButton dir={1} label={label} disabled={value >= max} onClick={() => nudge(1)} />

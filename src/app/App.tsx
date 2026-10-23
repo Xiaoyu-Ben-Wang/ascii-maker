@@ -583,8 +583,9 @@ export function App() {
             />
           )}
 
-          {/* Floating toolbar */}
-          <div className="glass absolute top-3 left-3 z-10 flex items-center gap-0.5 rounded-xl border border-line p-1 shadow-lg">
+          {/* Floating toolbars: tools on the left, view switch on the right; they wrap onto two rows if space runs out. */}
+          <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex flex-wrap items-start justify-between gap-2 *:pointer-events-auto">
+          <div className="glass flex items-center gap-0.5 rounded-xl border border-line p-1 shadow-lg">
             <div className="flex items-center gap-2 pr-2 pl-2 font-mono text-[12px] font-medium tracking-tight text-fg select-none max-sm:hidden">
               <svg viewBox="0 0 16 16" className="size-[18px] text-accent" aria-hidden>
                 <path d="M12.5 0.5v6M9.5 3.5h6M1.1 10.1l4.8 4.8M5.9 10.1l-4.8 4.8" className="stroke-[oklch(0.58_0.075_150)]" strokeWidth="1.3" />
@@ -637,19 +638,20 @@ export function App() {
           </div>
 
           {images.length > 0 && (
-            <div className="glass absolute top-3 right-3 z-10 flex items-center gap-0.5 rounded-xl border border-line p-1 shadow-lg" role="group" aria-label="View">
+            <div className="glass ml-auto flex items-center gap-0.5 rounded-xl border border-line p-1 shadow-lg" role="group" aria-label="View">
               <Tip label={<>Single<Kbd>G</Kbd></>}>
                 <Button size="sm" aria-pressed={!grid} onClick={() => setView('single')} className={cx(!grid && 'bg-white/[0.08] text-fg')}>
-                  <Square className="size-3.5" />Single
+                  <Square className="size-3.5" /><span className="max-sm:sr-only">Single</span>
                 </Button>
               </Tip>
               <Tip label={<>All<Kbd>G</Kbd></>}>
                 <Button size="sm" aria-pressed={grid} onClick={() => setView('grid')} className={cx(grid && 'bg-white/[0.08] text-fg')}>
-                  <LayoutGrid className="size-3.5" />All<span className="font-mono text-[11px] text-faint">{images.length}</span>
+                  <LayoutGrid className="size-3.5" /><span className="max-sm:sr-only">All</span><span className="font-mono text-[11px] text-faint">{images.length}</span>
                 </Button>
               </Tip>
             </div>
           )}
+          </div>
 
           {mask && (
             <MaskBar tool={maskTool} size={maskSize} overlay={maskOverlay} canUndo={mask.canUndo}
@@ -718,7 +720,7 @@ export function App() {
               <Button size="icon" aria-label="Reset to preset" disabled={!edits} onClick={() => { setParams(base); setEpoch((n) => n + 1); }}><RotateCcw className="size-3.5" /></Button>
             </Tip>
           </div>
-          <p className="truncate px-4 pt-1.5 text-[11px] text-faint empty:hidden" title={PRESETS[preset]?.description}>
+          <p className="line-clamp-2 px-4 pt-1.5 text-[11px] text-faint empty:hidden" title={PRESETS[preset]?.description}>
             {edits ? <span className="text-accent">{edits} change{edits > 1 ? 's' : ''}</span> : null}
             {edits && PRESETS[preset] ? ' · ' : null}
             {PRESETS[preset]?.description}

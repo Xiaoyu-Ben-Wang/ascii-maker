@@ -80,6 +80,44 @@ test('characters style returns an ASCII grid that is blank below the threshold',
   assert.ok(rows.some((row) => /[#@8S0]/.test(row)), 'bright cells should use dense glyphs');
 });
 
+test('an upper threshold leaves the brightest cells bare too', () => {
+  const src = gradient(400, 60);
+  for (let i = 0; i < src.data.length; i += 4) src.data[i + 1] = src.data[i + 2] = src.data[i]; // gray ramp, dark at left
+  const charset = ' .:-=+xX0S8#@';
+  const band = (lo: number, hi: number, soft = 0) => render(src, resolveParams({ style: 'characters', unitWidth: 0, cellSize: 10, charset, threshold: lo, thresholdHigh: hi, thresholdSoftness: soft }), { createCanvas: factory });
+  const row = band(0.3, 0.7).text!.split('\n')[2].padEnd(67);
+  const cols = row.length;
+  // The ramp is 400px over 67 columns: 30% ≈ column 20, 70% ≈ column 47.
+  assert.ok(!/\S/.test(row.slice(0, 18)), 'cells darker than the lower end stay bare');
+  assert.ok(!/\S/.test(row.slice(49, cols)), 'cells brighter than the upper end stay bare');
+  assert.ok(/^\S+$/.test(row.slice(22, 46)), 'cells inside the band all get glyphs');
+  // The whole character set spans the band, so its densest glyphs sit just below the upper end.
+  assert.ok(/[#@]/.test(row.slice(40, 48)), `dense glyphs near the upper end: ${row}`);
+  // Fade softens both ends instead of cutting them off.
+  const soft = band(0.3, 0.7, 0.5).text!.split('\n')[2];
+  assert.ok(soft.trimEnd().length > row.trimEnd().length, 'fade-out reaches past the upper end');
+  // 1 means no upper end: the same render as before the setting existed.
+  assert.deepEqual(render(src, resolveParams({ threshold: 0.3, thresholdHigh: 1 }), { createCanvas: factory }).data,
+    render(src, resolveParams({ threshold: 0.3 }), { createCanvas: factory }).data);
+});
+
+test('a lower threshold of 0 puts full glyphs on the darkest cells', () => {
+  const src = gradient(200, 40);
+  for (let i = 0; i < src.data.length; i += 4) src.data[i] = src.data[i + 1] = src.data[i + 2] = 0;
+  const p = resolveParams({ style: 'dots', sizeByBrightness: false, unitWidth: 0, cellSize: 10, threshold: 0, thresholdHigh: 0.5, thresholdSoftness: 0.5, colorMode: 'mono', bgOpacity: 0, glyphBlur: 0, bloom: 0, vignette: 0, grain: 0 });
+  const r = render(src, p, { createCanvas: factory });
+  let lit = 0;
+  for (let i = 0; i < r.data.length; i += 4) if (r.data[i] > 128) lit++;
+  assert.ok(lit > 0, 'black cells get glyphs when the lower end is 0');
+});
+
+test('full coverage ignores both ends of the threshold', () => {
+  const src = gradient(200, 60);
+  const p = { style: 'characters', coverage: 'full', unitWidth: 0, cellSize: 10, charset: '.:#' } as const;
+  assert.equal(render(src, resolveParams(p, { threshold: 0.4, thresholdHigh: 0.5 }), { createCanvas: factory }).text,
+    render(src, resolveParams(p), { createCanvas: factory }).text);
+});
+
 test('preview at a smaller size matches the full render scaled down', () => {
   const big = gradient(400, 200);
   const small = gradient(200, 100);
@@ -229,12 +267,37 @@ test('halo dims and blurs only near glyphs', () => {
   const base = { style: 'characters', unitWidth: w, cellSize: 8, threshold: 0.6, bgOpacity: 1, bgBlur: 0, bloom: 0, vignette: 0, grain: 0 } as const;
   const at = (r: { data: Uint8ClampedArray }, x: number, y = 40) => r.data[(y * w + x) * 4];
   const plain = render({ width: w, height: h, data }, resolveParams(base), { createCanvas: factory });
-  const dim = render({ width: w, height: h, data }, resolveParams({ ...base, haloDim: 0.8 }), { createCanvas: factory });
+  const dim = render({ width: w, height: h, data }, resolveParams({ ...base, haloTone: -0.8 }), { createCanvas: factory });
   const soft = render({ width: w, height: h, data }, resolveParams({ ...base, haloBlur: 6 }), { createCanvas: factory });
   assert.ok(at(dim, 44) < at(plain, 44) - 20, 'dimmed next to the glyphs');
   assert.equal(at(dim, 140), at(plain, 140), 'untouched far from the glyphs');
   assert.notEqual(at(soft, 43), at(plain, 43), 'blurred next to the glyphs');
   assert.deepEqual([at(soft, 139), at(soft, 140), at(soft, 141)], [at(plain, 139), at(plain, 140), at(plain, 141)], 'texture kept far away');
+});
+
+test('halo tone above 0 brightens near glyphs into a glow, and only there', () => {
+  const w = 160, h = 80, data = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    const x = i % w, v = x < 40 ? 255 : 60;
+    data.set([v, v, v, 255], i * 4);
+  }
+  const base = { style: 'characters', unitWidth: w, cellSize: 8, threshold: 0.6, bgOpacity: 1, bgBlur: 0, bloom: 0, vignette: 0, grain: 0 } as const;
+  const at = (r: { data: Uint8ClampedArray }, x: number) => r.data[(40 * w + x) * 4];
+  const plain = render({ width: w, height: h, data }, resolveParams(base), { createCanvas: factory });
+  const glow = render({ width: w, height: h, data }, resolveParams({ ...base, haloTone: 0.8 }), { createCanvas: factory });
+  const dim = render({ width: w, height: h, data }, resolveParams({ ...base, haloTone: -0.8 }), { createCanvas: factory });
+  assert.ok(at(glow, 44) > at(plain, 44) + 20, 'brighter next to the glyphs');
+  assert.ok(at(dim, 44) < at(plain, 44) - 20, 'darker next to the glyphs');
+  assert.equal(at(glow, 140), at(plain, 140), 'untouched far from the glyphs');
+});
+
+test('the old haloDim setting still works, as a negative halo tone', () => {
+  const p = resolveParams({ haloDim: 0.3 } as never);
+  assert.equal(p.haloTone, -0.3);
+  assert.ok(!('haloDim' in p));
+  assert.equal(resolveParams({ haloDim: 0.3, haloTone: 0.5 } as never).haloTone, 0.5, 'an explicit haloTone wins');
+  const out = execFileSync(process.execPath, ['cli/ascii-maker.ts', '--halo-dim', '0.4', '--dump-params'], { encoding: 'utf8' });
+  assert.equal(JSON.parse(out).haloTone, -0.4);
 });
 
 test('painted mask adds and removes glyphs, mapped through its region', () => {

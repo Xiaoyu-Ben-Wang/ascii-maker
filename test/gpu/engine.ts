@@ -65,7 +65,10 @@ function matchesCpu(name: string, src: RGBAImage, params: Partial<Params>, opts:
     const c = render(src, p, o);
     const g = gpu!.render(src, p, o);
     if (g.width !== c.width || g.height !== c.height) throw new Error(`size ${g.width}x${g.height} vs ${c.width}x${c.height}`);
-    if (g.text !== c.text) throw new Error('ASCII text differs');
+    const gt = g.text ?? '', ct = c.text ?? '';
+    let textDiff = 0;
+    for (let i = 0; i < Math.max(gt.length, ct.length); i++) if (gt[i] !== ct[i]) textDiff++;
+    if (textDiff) throw new Error(`ASCII text differs in ${textDiff} of ${ct.length} characters; pixels ${fmt(diff(g.data, c.data))}`);
     const d = diff(g.data, c.data);
     if (d.over > (opts.tol ?? 0.0005) || (!opts.anyMax && d.max > 40)) throw new Error(fmt(d));
     return fmt(d);
@@ -103,10 +106,17 @@ matchesCpu('custom charset with emoji and CJK', base, { style: 'characters', cov
 matchesCpu('large serif font', base, { style: 'characters', font: 'Georgia, serif', cellSize: 30 });
 for (const mode of ['relative', 'local'] as const) matchesCpu(`highlight mode ${mode}`, base, { highlightMode: mode, threshold: 0.6 });
 matchesCpu('threshold 1 (no glyphs)', base, { threshold: 1 });
+for (const mode of ['absolute', 'relative', 'local'] as const)
+  for (const style of glyphStyles) matchesCpu(`threshold band ${mode}, ${style}`, base, { style, highlightMode: mode, threshold: 0.1, thresholdHigh: 0.6, thresholdSoftness: 0.3 });
+matchesCpu('preset ascii-surround on a pattern', pattern, PRESETS['ascii-surround'].params);
+matchesCpu('threshold band with ends crossed', base, { threshold: 0.7, thresholdHigh: 0.3 });
 matchesCpu('threshold 0, no fade', base, { threshold: 0, thresholdSoftness: 0 });
-matchesCpu('halo dim + blur, wide spread', base, { haloDim: 0.8, haloBlur: 20, haloRadius: 8, bgBlur: 0 });
+matchesCpu('halo dim + blur, wide spread', base, { haloTone: -0.8, haloBlur: 20, haloRadius: 8, bgBlur: 0 });
 matchesCpu('colored background, opacity 0', base, { coverage: 'full', bgOpacity: 0, bgColor: '#f4ecd8' });
-matchesCpu('colored background with halo', base, { bgColor: '#203040', haloDim: 1, haloRadius: 3 });
+matchesCpu('halo glow', base, { haloTone: 0.7, haloRadius: 2 });
+matchesCpu('halo glow + blur, colored background', base, { haloTone: 0.4, haloBlur: 10, bgColor: '#f4ecd8' });
+for (const style of glyphStyles) matchesCpu(`halo glow, ${style}`, pattern, { style, haloTone: 1, haloRadius: 1.5 });
+matchesCpu('colored background with halo', base, { bgColor: '#203040', haloTone: -1, haloRadius: 3 });
 matchesCpu('adjustments at extremes', base, { brightness: 0.5, contrast: 2.5, saturation: 0, gamma: 2.5, invert: true });
 matchesCpu('all post effects', base, { bloom: 1.5, bloomRadius: 30, scanlines: 0.8, vignette: 1, vignetteX: 0.2, vignetteY: 0.8, chromatic: 6, blur: 3 });
 for (const algo of ['bayer2', 'bayer8', 'halftone', 'lines-diag', 'none'] as const) matchesCpu(`dither ${algo}`, base, { style: 'dither', ditherAlgo: algo, palette: 'pico8' });

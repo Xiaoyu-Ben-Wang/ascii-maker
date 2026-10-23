@@ -76,6 +76,8 @@ const options: Record<string, { type: 'string' | 'boolean'; short?: string }> = 
   list: { type: 'boolean' },
   json: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
+  // Old name: --halo-dim 0.4 is --halo-tone -0.4.
+  'halo-dim': { type: 'string' },
 };
 for (const k of paramKeys) {
   options[kebab(k)] = { type: typeof DEFAULTS[k] === 'boolean' ? 'boolean' : 'string' };
@@ -101,6 +103,11 @@ function parseFlags(values: Record<string, unknown>): Partial<Params> {
       if (!Number.isFinite(n)) fail(`--${name} expects a number, got "${v}"`);
       out[k] = n;
     } else out[k] = v;
+  }
+  if (values['halo-dim'] !== undefined && values['halo-tone'] === undefined) {
+    const n = Number(values['halo-dim']);
+    if (!Number.isFinite(n)) fail(`--halo-dim expects a number, got "${values['halo-dim']}"`);
+    out.haloTone = -n;
   }
   return out as Partial<Params>;
 }

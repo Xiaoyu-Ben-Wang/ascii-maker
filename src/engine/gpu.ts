@@ -145,7 +145,7 @@ void main() {
 }`,
 
   // Halo (dim and soften the photo near glyphs), then the glyph layer over it.
-  compose: `uniform sampler2D uBg, uSoft, uSpread, uGlyph; uniform bool uHalo, uSoftOn; uniform float uHaloDim;
+  compose: `uniform sampler2D uBg, uSoft, uSpread, uGlyph; uniform bool uHalo, uSoftOn; uniform float uHaloTone;
 uniform vec3 uBgColor; uniform ivec2 uSpreadSize; uniform vec2 uGridPx;
 void main() {
   ivec2 p = P();
@@ -154,7 +154,9 @@ void main() {
     float m = clamp(bil(uSpread, uSpreadSize, uGridPx, p).r * 3.0, 0.0, 1.0);
     if (m > 0.0) {
       if (uSoftOn) c += (texelFetch(uSoft, p, 0).rgb - c) * m;
-      c += (uBgColor - c) * (uHaloDim * m);
+      // Below 0 dims toward the background color; above 0 lifts toward a brighter version of the pixel's own color.
+      vec3 inv = 1.0 - c;
+      c += ((uHaloTone < 0.0 ? uBgColor : 1.0 - inv * inv * inv) - c) * (abs(uHaloTone) * m);
     }
   }
   vec4 g = texelFetch(uGlyph, p, 0);
@@ -586,7 +588,7 @@ export class GpuRenderer {
       if (p.glyphBlur > 0) { const b = this.blur(glyph, p.glyphBlur * s); this.release(glyph); glyph = b; }
 
       const bg = this.background(adj, p, p.bgBlur, s);
-      const halo = p.coverage !== 'full' && (p.haloDim > 0 || p.haloBlur > 0);
+      const halo = p.coverage !== 'full' && (p.haloTone !== 0 || p.haloBlur > 0);
       let spread: Tex | null = null, soft: Tex | null = null;
       if (halo) {
         const c = createF(cols, rows);
@@ -595,7 +597,7 @@ export class GpuRenderer {
         if (p.haloBlur > 0) soft = this.background(adj, p, p.bgBlur + p.haloBlur, s);
       }
       out = this.pass('compose', w, h, 'f16', {
-        uBg: bg, uSoft: soft ?? bg, uSpread: spread ?? bg, uGlyph: glyph, uHalo: halo, uSoftOn: !!soft, uHaloDim: p.haloDim,
+        uBg: bg, uSoft: soft ?? bg, uSpread: spread ?? bg, uGlyph: glyph, uHalo: halo, uSoftOn: !!soft, uHaloTone: p.haloTone,
         uBgColor: hexToRgb(p.bgColor), uSpreadSize: [cols, rows], uGridPx: [Math.round(cols * cw), Math.round(rows * ch)],
       });
       this.release(bg, soft, spread);

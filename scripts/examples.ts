@@ -12,7 +12,7 @@ mkdirSync(OUT, { recursive: true });
 const PLAN: Record<string, string[]> = {
   jellyfish: ['soft-ascii', 'cross', 'diagonal', 'dither-scanline'],
   planet: ['cross', 'soft-ascii'],
-  clouds: ['diagonal', 'dots'],
+  clouds: ['diagonal', 'dots', 'ascii-surround'],
   orbs: ['gameboy-dither', 'matrix'],
 };
 

@@ -65,7 +65,9 @@ export interface Params {
   font: string;
   highlightMode: HighlightMode;
   threshold: number; // 0..1 luminance below which a cell gets no glyph
-  thresholdSoftness: number; // 0..1 fade-in range above the threshold
+  /** 0..1 upper end: cells brighter than this get no glyph either (1 = no upper end). */
+  thresholdHigh: number;
+  thresholdSoftness: number; // 0..1 how gradually glyphs fade in above each end, as a share of the range above it
   localRadius: number; // px, neighborhood size for the "local" highlight mode
   sizeByBrightness: boolean; // scale cross/dots/diagonal/lines with luminance
   strokeWidth: number; // fraction of cell size, for cross/diagonal/lines
@@ -81,7 +83,8 @@ export interface Params {
   glyphBlur: number; // px softening of the glyph layer only
   bgOpacity: number; // 0..1 opacity of the background image over bgColor
   bgColor: string;
-  haloDim: number; // 0..1 how far the photo near glyphs fades toward bgColor
+  /** -1..1 the photo near glyphs: below 0 it dims toward bgColor, above 0 it glows (brightens in its own colors). */
+  haloTone: number;
   haloBlur: number; // extra blur of the photo near glyphs, in px
   haloRadius: number; // how far the halo spreads from the glyphs, in cells
 
@@ -123,6 +126,7 @@ export const DEFAULTS: Params = {
   font: 'Consolas, "Cascadia Mono", "DejaVu Sans Mono", "Courier New", monospace',
   highlightMode: 'absolute',
   threshold: 0.3,
+  thresholdHigh: 1,
   thresholdSoftness: 0.25,
   localRadius: 120,
   sizeByBrightness: true,
@@ -138,7 +142,7 @@ export const DEFAULTS: Params = {
   glyphBlur: 0,
   bgOpacity: 0.85,
   bgColor: '#000000',
-  haloDim: 0,
+  haloTone: 0,
   haloBlur: 0,
   haloRadius: 1.5,
 
@@ -170,22 +174,22 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
   },
   'sharp-ascii': {
     description: 'Glowing ASCII on the highlights of the sharp photo, dimmed only around the glyphs',
-    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 0, bgOpacity: 1, haloDim: 0.2, bloom: 0.6, vignette: 0.1 },
+    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 0, bgOpacity: 1, haloTone: -0.2, bloom: 0.6, vignette: 0.1 },
   },
   cross: {
     description: 'Cross-stitch "+" and "×" marks that grow with brightness',
-    params: { style: 'cross', cellSize: 16, threshold: 0.28, strokeWidth: 0.1, bgBlur: 0, bgOpacity: 1, haloBlur: 14, haloDim: 0.2, glyphTint: 0.3, glyphBoost: 1.5, bloom: 0.6 },
+    params: { style: 'cross', cellSize: 16, threshold: 0.28, strokeWidth: 0.1, bgBlur: 0, bgOpacity: 1, haloBlur: 14, haloTone: -0.2, glyphTint: 0.3, glyphBoost: 1.5, bloom: 0.6 },
   },
   diagonal: {
     description: 'Hatched slashes that follow the image edges, warm film look',
     params: {
       style: 'diagonal', cellSize: 12, threshold: 0.25, strokeWidth: 0.09, diagonalMode: 'edge', bgBlur: 0,
-      bgOpacity: 1, haloBlur: 14, haloDim: 0.2, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.4, vignette: 0.25, grain: 0.06,
+      bgOpacity: 1, haloBlur: 14, haloTone: -0.2, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.4, vignette: 0.25, grain: 0.06,
     },
   },
   dots: {
     description: 'Halftone dots that scale with brightness',
-    params: { style: 'dots', cellSize: 12, threshold: 0.12, bgBlur: 0, bgOpacity: 1, haloBlur: 14, haloDim: 0.2, glyphTint: 0.2, bloom: 0.3 },
+    params: { style: 'dots', cellSize: 12, threshold: 0.12, bgBlur: 0, bgOpacity: 1, haloBlur: 14, haloTone: -0.2, glyphTint: 0.2, bloom: 0.3 },
   },
   'full-ascii': {
     description: 'Classic ASCII art: every cell becomes a character, in the source colors on black',
@@ -218,6 +222,13 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
     description: 'The photo itself with CRT scanlines, no other effects',
     params: { style: 'photo', bgBlur: 0, bgOpacity: 1, scanlines: 0.5, scanlineSpacing: 4, bloom: 0, vignette: 0, grain: 0 },
   },
+  'ascii-surround': {
+    description: 'Everything but the brightest subject becomes ASCII; the subject stays a photo',
+    params: {
+      style: 'characters', highlightMode: 'relative', threshold: 0, thresholdHigh: 0.8, thresholdSoftness: 0.15, bgBlur: 0, bgOpacity: 1,
+      haloTone: -1, haloBlur: 0, haloRadius: 0.6, glyphTint: 0.1, bloom: 0.3, vignette: 0, grain: 0,
+    },
+  },
   matrix: {
     description: 'Green mono ASCII on black with scanlines',
     params: {
@@ -228,7 +239,14 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
 };
 
 export function resolveParams(...layers: (Partial<Params> | undefined)[]): Params {
-  return Object.assign({}, DEFAULTS, ...layers.filter(Boolean));
+  return Object.assign({}, DEFAULTS, ...layers.filter(Boolean).map(upgrade));
+}
+
+/** Renamed params in saved settings, presets and config files: haloDim (0..1, dim only) is now haloTone (-1..1). */
+function upgrade(layer: Partial<Params> | undefined): Partial<Params> | undefined {
+  if (!layer || !('haloDim' in layer)) return layer;
+  const { haloDim, ...rest } = layer as Partial<Params> & { haloDim: unknown };
+  return typeof haloDim === 'number' && !('haloTone' in rest) ? { ...rest, haloTone: -haloDim } : rest;
 }
 
 /** Numeric ranges used by the UI sliders and CLI validation. */
@@ -240,6 +258,7 @@ export const RANGES: Partial<Record<keyof Params, [min: number, max: number, ste
   unitWidth: [0, 7680, 1],
   cellSize: [4, 64, 1],
   threshold: [0, 1, 0.01],
+  thresholdHigh: [0, 1, 0.01],
   thresholdSoftness: [0, 1, 0.01],
   localRadius: [10, 600, 1],
   strokeWidth: [0.02, 0.4, 0.01],
@@ -250,7 +269,7 @@ export const RANGES: Partial<Record<keyof Params, [min: number, max: number, ste
   glyphBlur: [0, 8, 0.1],
   blur: [0, 30, 0.1],
   bgOpacity: [0, 1, 0.01],
-  haloDim: [0, 1, 0.01],
+  haloTone: [-1, 1, 0.01],
   haloBlur: [0, 40, 0.5],
   haloRadius: [0.5, 8, 0.1],
   pixelSize: [1, 32, 1],

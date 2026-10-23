@@ -207,7 +207,7 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
   let { glow, alpha } = layer;
 
   const out = bg;
-  if (p.coverage !== 'full' && (p.haloDim > 0 || p.haloBlur > 0)) halo(out, img, layer.cover, cols, rows, cw, ch, p, s, memo);
+  if (p.coverage !== 'full' && (p.haloTone !== 0 || p.haloBlur > 0)) halo(out, img, layer.cover, cols, rows, cw, ch, p, s, memo);
   if (p.glyphBlur > 0) {
     glow = blur(glow, p.glyphBlur * s);
     alpha = blur(alpha, p.glyphBlur * s);
@@ -352,6 +352,9 @@ export function glyphPlan(cells: FImage, grid: CellGrid, p: Params, s: number, c
   const textRows: string[] = [];
   const th = full ? 0 : p.threshold;
   const fadeEnd = full ? 0 : th + p.thresholdSoftness * (1 - th);
+  // Upper end: glyphs fade out above it, over the same share of the range above it as the fade-in uses.
+  const top = full ? 1 : Math.max(th, p.thresholdHigh);
+  const fadeOutEnd = top + p.thresholdSoftness * (1 - top);
   const cover = new Float32Array(cols * rows);
   const painted = highlightMask ? maskCells(highlightMask, cols, rows, cw, ch, w, h) : null;
 
@@ -361,9 +364,11 @@ export function glyphPlan(cells: FImage, grid: CellGrid, p: Params, s: number, c
       i = cy * cols + cx;
       const l = bright[i];
       const jitter = rand();
-      let a = smoothstep(th, fadeEnd, l) * p.glyphOpacity;
-      // t: 0 at the threshold, 1 at full white; drives glyph choice and size.
-      let t = th >= 1 ? 0 : clamp01((l - th) / (1 - th));
+      // A lower end of 0 means no lower end: even the darkest cells get full glyphs.
+      let a = (th > 0 ? smoothstep(th, fadeEnd, l) : 1) * p.glyphOpacity;
+      if (top < 1) a *= 1 - smoothstep(top, fadeOutEnd, l);
+      // t: 0 at the threshold, 1 at the upper end (full white without one); drives glyph choice and size.
+      let t = top <= th ? 0 : clamp01((l - th) / (top - th));
       const m = painted ? painted[i] : 0;
       if (m > 0) {
         // Forced cells below the threshold pick glyphs by their own brightness, so dark areas get light glyphs.
@@ -446,7 +451,7 @@ export function glyphPlan(cells: FImage, grid: CellGrid, p: Params, s: number, c
   return { mw, mh, masks, maskKeys, slot, x0: X0, y0: Y0, color, cover, text: p.style === 'characters' ? textRows.join('\n') : undefined };
 }
 
-/** Dims and/or blurs the photo only near glyphs, so the rest of the image stays as it is. */
+/** Dims or brightens, and/or blurs, the photo only near glyphs, so the rest of the image stays as it is. */
 function halo(bg: FImage, img: FImage, cover: Float32Array, cols: number, rows: number, cw: number, ch: number, p: Params, s: number, memo: Memo) {
   const c = createF(cols, rows);
   c.r.set(cover);
@@ -454,7 +459,10 @@ function halo(bg: FImage, img: FImage, cover: Float32Array, cols: number, rows: 
   const gw = Math.round(cols * cw);
   const spread = resizeF(blur(c, p.haloRadius), gw, Math.round(rows * ch)).r;
   const soft = p.haloBlur > 0 ? background(img, { ...p, bgBlur: p.bgBlur + p.haloBlur }, s, memo) : null;
+  // Dimming fades toward the background color; a glow lifts each pixel toward a brighter version of its own color.
   const [cr, cg, cb] = hexToRgb(p.bgColor);
+  const tone = Math.abs(p.haloTone), glow = p.haloTone > 0;
+  const lift = (v: number) => 1 - (1 - v) * (1 - v) * (1 - v);
   for (let i = 0; i < bg.r.length; i++) {
     // The gain makes a lone glyph's halo nearly as strong as a cluster's.
     const m = clamp01(spread[Math.floor(i / bg.width) * gw + (i % bg.width)] * 3);
@@ -462,8 +470,9 @@ function halo(bg: FImage, img: FImage, cover: Float32Array, cols: number, rows: 
     if (soft) {
       bg.r[i] += (soft.r[i] - bg.r[i]) * m; bg.g[i] += (soft.g[i] - bg.g[i]) * m; bg.b[i] += (soft.b[i] - bg.b[i]) * m;
     }
-    const d = p.haloDim * m;
-    bg.r[i] += (cr - bg.r[i]) * d; bg.g[i] += (cg - bg.g[i]) * d; bg.b[i] += (cb - bg.b[i]) * d;
+    const d = tone * m;
+    if (glow) { bg.r[i] += (lift(bg.r[i]) - bg.r[i]) * d; bg.g[i] += (lift(bg.g[i]) - bg.g[i]) * d; bg.b[i] += (lift(bg.b[i]) - bg.b[i]) * d; }
+    else { bg.r[i] += (cr - bg.r[i]) * d; bg.g[i] += (cg - bg.g[i]) * d; bg.b[i] += (cb - bg.b[i]) * d; }
   }
 }
 
@@ -475,14 +484,19 @@ function halo(bg: FImage, img: FImage, cover: Float32Array, cols: number, rows: 
  */
 function highlightLevels(lum: Float32Array, cols: number, rows: number, p: Params, radius: number): Float32Array {
   if (p.highlightMode === 'relative') {
-    const sorted = lum.slice().sort();
+    // Ranked on luminance rounded to 1/1024, so cells that are equal to the eye tie exactly; otherwise rounding noise
+    // (the GPU's cell averages differ from the CPU's in the last bits) reorders flat areas such as sky. Tied cells
+    // share the middle rank of their group, so a flat area doesn't count as brighter than half of itself.
+    const q = lum.map((v) => Math.round(v * 1024));
+    const sorted = q.slice().sort();
     const n = sorted.length;
     const out = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      let lo = 0, hi = n; // first index with sorted[k] > lum[i]
-      while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid] <= lum[i]) lo = mid + 1; else hi = mid; }
-      out[i] = lo / n;
-    }
+    const bound = (v: number, inclusive: boolean) => {
+      let lo = 0, hi = n;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid] < v || (inclusive && sorted[mid] === v)) lo = mid + 1; else hi = mid; }
+      return lo;
+    };
+    for (let i = 0; i < n; i++) out[i] = (bound(q[i], false) + bound(q[i], true)) / (2 * n);
     return out;
   }
   if (p.highlightMode === 'local') {

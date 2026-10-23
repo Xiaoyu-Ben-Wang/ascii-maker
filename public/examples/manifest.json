@@ -56,6 +56,13 @@
     "description": "Halftone dots that scale with brightness"
   },
   {
+    "source": "clouds",
+    "preset": "ascii-surround",
+    "file": "clouds-ascii-surround.jpg",
+    "thumb": "clouds-ascii-surround-thumb.webp",
+    "description": "Everything but the brightest subject becomes ASCII; the subject stays a photo"
+  },
+  {
     "source": "orbs",
     "preset": "gameboy-dither",
     "file": "orbs-gameboy-dither.jpg",
