@@ -78,7 +78,7 @@ export function App() {
   const [exportSize, setExportSize] = useState<SizeName>('source');
   const [format, setFormat] = useState('image/png');
   const [quality, setQuality] = useState(92);
-  const [pngLevel, setPngLevel] = useState(6);
+  const [pngLevel, setPngLevel] = useState(7);
   const [exporting, setExporting] = useState<string | null>(null);
   const [split, setSplit] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
@@ -614,7 +614,7 @@ export function App() {
                             <Row label="Size"><Select label="Export size" value={exportSize} options={sizes} onChange={setExportSize} /></Row>
               <Row label="Format"><Select label="Format" value={format} options={FORMATS} onChange={setFormat} /></Row>
               {format === 'image/png'
-                ? <SliderField label="Compression" hint="Lossless either way: higher is smaller but slower to export (9 is about 7% smaller than 6). JPEG or WebP are far smaller." value={pngLevel} min={0} max={9} step={1} onChange={setPngLevel} />
+                ? <SliderField label="Compression" hint="Lossless either way: higher is smaller but slower to export. JPEG or WebP are far smaller." value={pngLevel} min={0} max={9} step={1} onChange={setPngLevel} />
                 : <SliderField label="Quality" hint="Lower makes smaller files with more compression artifacts." value={quality} min={10} max={100} step={1} onChange={setQuality} />}
               {frame && <div className="pt-1 pb-2 text-right font-mono text-[11px] text-faint">{frame.width} × {frame.height}px</div>}
               <div className="mt-1 grid gap-1 border-t border-line pt-2">
