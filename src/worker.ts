@@ -1,5 +1,6 @@
 // Runs the engine off the main thread. Each source bitmap is sent once; renders come back as transferable bitmaps.
 import { RenderCache, render, type HighlightMask, type Params } from './engine/index.ts';
+import { encodePng } from './engine/png.ts';
 
 /** Region of the source to use, in source pixels. */
 export interface Crop { x: number; y: number; w: number; h: number }
@@ -9,7 +10,7 @@ export type WorkerRequest =
   | { type: 'drop'; sourceId: number }
   | { type: 'mask'; sourceId: number; mask: HighlightMask | null }
   | { type: 'render'; reqId: number; sourceId: number; width: number; height: number; crop: Crop; targetWidth: number; params: Params }
-  | { type: 'export'; reqId: number; sourceId: number; width: number; height: number; crop: Crop; params: Params; mime: string; quality: number };
+  | { type: 'export'; reqId: number; sourceId: number; width: number; height: number; crop: Crop; params: Params; mime: string; quality: number; pngLevel: number };
 
 export type WorkerResponse =
   | { type: 'rendered'; reqId: number; bitmap: ImageBitmap; text?: string; ms: number }
@@ -99,7 +100,9 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
     } else {
       const r = render(img, msg.params, { createCanvas, mask });
       forget(keyOf(msg.sourceId, msg.width, msg.height, msg.crop)); // full-size buffers are large; don't keep them around
-      const blob = await toCanvas(r.data, r.width, r.height).convertToBlob({ type: msg.mime, quality: msg.quality });
+      const blob = msg.mime === 'image/png'
+        ? new Blob([encodePng(r.data, r.width, r.height, msg.pngLevel) as Uint8Array<ArrayBuffer>], { type: 'image/png' })
+        : await toCanvas(r.data, r.width, r.height).convertToBlob({ type: msg.mime, quality: msg.quality });
       post({ type: 'exported', reqId: msg.reqId, blob, width: r.width, height: r.height, text: r.text, ms: performance.now() - t0 });
     }
   } catch (err) {
