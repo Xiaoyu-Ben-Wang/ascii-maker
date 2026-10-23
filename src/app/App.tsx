@@ -73,8 +73,6 @@ export function App() {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [view, setView] = useState<'single' | 'grid'>('single');
   const [result, setResult] = useState<Result | null>(null);
-  const [fitWidth, setFitWidth] = useState(0);
-  const [zoom, setZoom] = useState(1);
   const [exportSize, setExportSize] = useState<SizeName>('source');
   const [format, setFormat] = useState('image/png');
   const [quality, setQuality] = useState(92);
@@ -305,10 +303,9 @@ export function App() {
 
   // ---- main preview: setting changes are debounced so a slider drag renders once it settles ----
   const frame = useMemo(() => (active ? frameFor(active.width, active.height, exportSize) : null), [active, exportSize]);
-  // Zoomed in, the preview renders at more of the export resolution so glyphs stay crisp.
-  const previewWidth = frame && fitWidth ? Math.min(frame.width, Math.round(fitWidth * Math.min(2, devicePixelRatio) * zoom), zoom > 1 ? 4096 : 2200) : 0;
-  const previewHeight = frame ? Math.max(1, Math.round((previewWidth * frame.height) / frame.width)) : 0;
-  const onSize = useCallback((w: number) => setFitWidth(w), []);
+  // Always the export resolution, so zooming never changes how the render looks.
+  const previewWidth = frame?.width ?? 0;
+  const previewHeight = frame?.height ?? 0;
 
   const renderedParams = useRef(params);
   useEffect(() => {
@@ -477,8 +474,6 @@ export function App() {
               onOpen={() => fileInput.current?.click()}
               onSamples={addSamples}
               onExample={openExample}
-              onSize={onSize}
-              onZoom={setZoom}
               pick={picking && active ? { x: params.vignetteX, y: params.vignetteY, onPick: pickVignette, onDone: () => setPicking(false) } : null}
               paint={mask ? { mask, tool: maskTool, size: maskSize, overlay: maskOverlay, onStroke } : null}
             />

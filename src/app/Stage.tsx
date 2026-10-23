@@ -16,9 +16,7 @@ interface Props {
   onOpen: () => void;
   onSamples: () => void;
   onExample: (source: SampleSource, preset: string) => void;
-  onSize: (cssWidth: number, cssHeight: number) => void;
   /** Called with the zoom level the preview should be rendered for (1, 2, 4 or 8). */
-  onZoom?: (renderZoom: number) => void;
   /** When set, clicking or dragging on the image picks a point (0..1 of width and height), shown with a marker. */
   pick?: { x: number; y: number; onPick: (x: number, y: number) => void; onDone: () => void } | null;
   /** When set, dragging on the image paints the highlight mask. `size` is the brush radius as a share of the image's long edge. */
@@ -31,10 +29,8 @@ export interface Paint { mask: PaintMask; tool: MaskTool; size: number; overlay:
 const MAX_ZOOM = 8;
 type View = { z: number; x: number; y: number };
 const NO_ZOOM: View = { z: 1, x: 0, y: 0 };
-/** Power-of-two zoom bucket, so renders only redo at 2×, 4×, 8× rather than on every pinch step. */
-export const renderZoom = (z: number) => Math.min(MAX_ZOOM, 2 ** Math.ceil(Math.log2(Math.max(1, z) - 0.05)));
 
-export function Stage({ original, frame, result, split, onSplit, holdOriginal, onOpen, onSamples, onExample, onSize, onZoom, pick, paint, children }: Props) {
+export function Stage({ original, frame, result, split, onSplit, holdOriginal, onOpen, onSamples, onExample, pick, paint, children }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const origRef = useRef<HTMLCanvasElement>(null);
   const resRef = useRef<HTMLCanvasElement>(null);
@@ -45,17 +41,10 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
   viewRef.current = view;
   const fitRef = useRef(fit);
   fitRef.current = fit;
-  const rz = renderZoom(view.z);
 
   // A new image (or size) starts unzoomed.
   useEffect(() => setView(NO_ZOOM), [original, frame]);
 
-  // Re-render sharper once a pinch settles at a new zoom bucket.
-  useEffect(() => {
-    if (!onZoom) return;
-    const t = setTimeout(() => onZoom(rz), 150);
-    return () => clearTimeout(t);
-  }, [rz, onZoom]);
 
   // Pinch, pan, wheel and double-tap zoom. Touch events (not pointer events) because iOS Safari only lets a page
   // take over a pinch through a non-passive touchmove.
@@ -210,22 +199,19 @@ export function Stage({ original, frame, result, split, onSplit, holdOriginal, o
     const k = Math.min((box.w - 48) / frame.width, (box.h - 150) / frame.height);
     const f = { w: Math.max(1, Math.floor(frame.width * k)), h: Math.max(1, Math.floor(frame.height * k)) };
     setFit(f);
-    onSize(f.w, f.h);
-  }, [frame, box.w, box.h, onSize]);
+  }, [frame, box.w, box.h]);
 
-  // The "before" layer is the source drawn once at display resolution.
+  // The "before" layer is the source drawn once at the export resolution, like the render.
   useEffect(() => {
     const c = origRef.current;
-    if (!c || !original || !frame || !fit.w) return;
-    const dpr = Math.min(2, devicePixelRatio);
-    const k = Math.min(dpr * rz, frame.crop.w / fit.w);
-    c.width = Math.max(1, Math.round(fit.w * Math.max(1, k)));
-    c.height = Math.max(1, Math.round(fit.h * Math.max(1, k)));
+    if (!c || !original || !frame) return;
+    c.width = frame.width;
+    c.height = frame.height;
     const ctx = c.getContext('2d')!;
     ctx.imageSmoothingQuality = 'high';
     const { x, y, w, h } = frame.crop;
     ctx.drawImage(original, x, y, w, h, 0, 0, c.width, c.height);
-  }, [original, frame, fit.w, fit.h, rz]);
+  }, [original, frame]);
 
   useEffect(() => {
     // A bitmap that was already shown is detached (width 0) and can't be transferred again.
