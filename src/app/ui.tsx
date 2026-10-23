@@ -1,4 +1,4 @@
-import { Check, ChevronDown, RotateCcw } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 import { Popover as P, Select as S, Slider as Sl, Switch as Sw, Tooltip as T } from 'radix-ui';
 import { memo, useEffect, useState, type ComponentProps, type ReactNode } from 'react';
 
@@ -70,6 +70,27 @@ function fmt(v: number, step: number) {
   return v.toFixed(d);
 }
 
+/** Arrow-button jump: one tick on whole-number sliders, otherwise a round value near 1/50 of the range. */
+function jumpFor(min: number, max: number, step: number) {
+  if (step >= 1) return step;
+  const raw = (max - min) / 50;
+  const e = 10 ** Math.floor(Math.log10(raw));
+  const nice = [1, 2, 5, 10].map((m) => m * e).reduce((a, b) => (Math.abs(Math.log(b / raw)) < Math.abs(Math.log(a / raw)) ? b : a));
+  return Math.max(step, Math.round(nice / step) * step);
+}
+
+function StepButton({ dir, label, disabled, onClick }: { dir: -1 | 1; label: string; disabled: boolean; onClick: () => void }) {
+  const Icon = dir < 0 ? ChevronLeft : ChevronRight;
+  return (
+    <button
+      type="button" tabIndex={-1} aria-label={`${dir < 0 ? 'Decrease' : 'Increase'} ${label}`} disabled={disabled} onClick={onClick}
+      className="press grid size-4 shrink-0 place-items-center rounded text-faint hover:bg-white/[0.06] hover:text-fg disabled:pointer-events-none disabled:opacity-30"
+    >
+      <Icon className="size-3" />
+    </button>
+  );
+}
+
 /** Label + editable value + slider. Double-click the label (or click the arrow) to reset. */
 export const SliderField = memo(function SliderField(props: {
   label: string; value: number; min: number; max: number; step: number; hint?: string; modified?: boolean;
@@ -77,6 +98,10 @@ export const SliderField = memo(function SliderField(props: {
 }) {
   const { label, value, min, max, step, hint, modified, onChange, onReset } = props;
   const [draft, setDraft] = useState<string | null>(null);
+  const nudge = (dir: -1 | 1) => {
+    const v = Math.min(max, Math.max(min, value + dir * jumpFor(min, max, step)));
+    onChange(Number((min + Math.round((v - min) / step) * step).toFixed(6)));
+  };
   const commit = () => {
     if (draft !== null) {
       const n = Number(draft);
@@ -102,12 +127,16 @@ export const SliderField = memo(function SliderField(props: {
           }}
         />
       </div>
-      <Sl.Root className="relative flex h-4 w-full touch-none items-center select-none" value={[value]} min={min} max={max} step={step} onValueChange={([v]) => onChange(v)}>
-        <Sl.Track className="relative h-[3px] grow overflow-hidden rounded-full bg-white/[0.09]">
-          <Sl.Range className="absolute h-full rounded-full bg-gradient-to-r from-accent/50 to-accent" />
-        </Sl.Track>
-        <Sl.Thumb aria-label={label} className="block size-3.5 rounded-full bg-fg shadow-[0_1px_4px_rgb(0_0_0/0.5)] outline-none transition-[box-shadow,transform] duration-150 focus-visible:ring-4 focus-visible:ring-accent/30 active:scale-110" />
-      </Sl.Root>
+      <div className="flex items-center gap-1">
+        <StepButton dir={-1} label={label} disabled={value <= min} onClick={() => nudge(-1)} />
+        <Sl.Root className="relative flex h-4 min-w-0 flex-1 touch-none items-center select-none" value={[value]} min={min} max={max} step={step} onValueChange={([v]) => onChange(v)}>
+          <Sl.Track className="relative h-[3px] grow overflow-hidden rounded-full bg-white/[0.09]">
+            <Sl.Range className="absolute h-full rounded-full bg-gradient-to-r from-accent/50 to-accent" />
+          </Sl.Track>
+          <Sl.Thumb aria-label={label} className="block size-3.5 rounded-full bg-fg shadow-[0_1px_4px_rgb(0_0_0/0.5)] outline-none transition-[box-shadow,transform] duration-150 focus-visible:ring-4 focus-visible:ring-accent/30 active:scale-110" />
+        </Sl.Root>
+        <StepButton dir={1} label={label} disabled={value >= max} onClick={() => nudge(1)} />
+      </div>
     </div>
   );
 });
