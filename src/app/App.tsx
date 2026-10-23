@@ -11,7 +11,7 @@ import { MaskBar } from './MaskBar.tsx';
 import { Renderer, type Rendered } from './renderer.ts';
 import { SAMPLE_SOURCES, loadSample, type SampleSource } from './sample.ts';
 import { Stage } from './Stage.tsx';
-import { Button, Kbd, Popover, Row, Select, TextField, Tip, cx } from './ui.tsx';
+import { Button, Kbd, Popover, Row, Select, SliderField, TextField, Tip, cx } from './ui.tsx';
 import { zip } from './zip.ts';
 
 const STORE_KEY = 'ascii-maker:v2';
@@ -77,6 +77,7 @@ export function App() {
   const [zoom, setZoom] = useState(1);
   const [exportSize, setExportSize] = useState<SizeName>('source');
   const [format, setFormat] = useState('image/png');
+  const [quality, setQuality] = useState(92);
   const [exporting, setExporting] = useState<string | null>(null);
   const [split, setSplit] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
@@ -337,9 +338,9 @@ export function App() {
   // ---- export ----
   const exportOne = useCallback(async (img: Img, p: Params) => {
     const f = frameFor(img.width, img.height, exportSize);
-    const r = await renderer!.export({ sourceId: img.id, width: f.width, height: f.height, crop: f.crop, params: p, mime: format, quality: 0.92 });
+    const r = await renderer!.export({ sourceId: img.id, width: f.width, height: f.height, crop: f.crop, params: p, mime: format, quality: quality / 100 });
     return { ...r, name: `${img.name}-${p.style}.${ext(format)}` };
-  }, [renderer, exportSize, format]);
+  }, [renderer, exportSize, format, quality]);
 
   const doExport = useCallback(async () => {
     if (!active || !renderer || exporting) return;
@@ -611,6 +612,9 @@ export function App() {
             <Popover trigger={<Button variant="solid" size="icon" aria-label="Export options"><Settings2 className="size-4" /></Button>}>
                             <Row label="Size"><Select label="Export size" value={exportSize} options={sizes} onChange={setExportSize} /></Row>
               <Row label="Format"><Select label="Format" value={format} options={FORMATS} onChange={setFormat} /></Row>
+              {format === 'image/png'
+                ? <p className="py-1 text-[11px] text-faint">PNG is lossless, so it has no quality setting. JPEG or WebP are much smaller.</p>
+                : <SliderField label="Quality" hint="Lower makes smaller files with more compression artifacts." value={quality} min={10} max={100} step={1} onChange={setQuality} />}
               {frame && <div className="pt-1 pb-2 text-right font-mono text-[11px] text-faint">{frame.width} × {frame.height}px</div>}
               <div className="mt-1 grid gap-1 border-t border-line pt-2">
                 {images.length > 1 && (
