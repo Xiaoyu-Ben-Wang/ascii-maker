@@ -112,7 +112,7 @@ Press `\` (or the split button) for a before/after divider you can drag, or hold
 | Preset | Look |
 | --- | --- |
 | `soft-ascii` | Glowing ASCII on the highlights, over a softened copy of the photo |
-| `sharp-ascii` | The same over the sharp photo, softened and dimmed only around the glyphs |
+| `sharp-ascii` | The same over the sharp photo, dimmed only around the glyphs |
 | `cross` | Cross-stitch `+` and `×` marks that grow with brightness |
 | `diagonal` | Hatched slashes that follow the edges, warm film look |
 | `dots` | Halftone dots that scale with brightness |
@@ -156,7 +156,7 @@ Glyph styles draw over a copy of the photo:
 
 - **Opacity** fades the whole photo toward the **Fill color** (black by default); 0 leaves only the fill.
 - **Blur** softens the whole photo.
-- **Dim near glyphs** and **Blur near glyphs** do the same only around the glyphs, so the glyphs stand out while the rest of the photo stays bright and sharp. **Spread** sets how far around the glyphs that reaches, in cells. Combine them freely: blur alone gives a glowing look, dim alone a dark outline, both a soft shadow. The highlight presets (`sharp-ascii`, `cross`, `diagonal`, `dots`) use both, at blur 14 and dim 0.45, with the photo otherwise at full opacity; `soft-ascii` uses the blur only.
+- **Dim near glyphs** and **Blur near glyphs** do the same only around the glyphs, so the glyphs stand out while the rest of the photo stays bright and sharp. **Spread** sets how far around the glyphs that reaches, in cells. Combine them freely: blur alone gives a glowing look, dim alone a dark outline, both a soft shadow. The `cross`, `diagonal` and `dots` presets use both, at blur 14 and dim 0.2, with the photo otherwise at full opacity; `sharp-ascii` uses only the dim (0.2) and `soft-ascii` only the blur (9).
 
 ## Effects
 
