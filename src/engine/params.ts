@@ -164,7 +164,7 @@ export const DEFAULTS: Params = {
 export const PRESETS: Record<string, { description: string; params: Partial<Params> }> = {
   'soft-ascii': {
     description: 'Glowing ASCII on the highlights, over a softened copy of the photo',
-    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 3, bgOpacity: 1, haloBlur: 14, haloDim: 0.45, bloom: 0.6, vignette: 0.2 },
+    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 3, bgOpacity: 1, haloBlur: 14, bloom: 0.6, vignette: 0.2 },
   },
   'sharp-ascii': {
     description: 'Glowing ASCII on the highlights of the sharp photo, softened and dimmed only around the glyphs',
