@@ -1,15 +1,23 @@
 import { createCanvas } from '@napi-rs/canvas';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { bayerMatrix, dither, PALETTES } from '../src/engine/dither.ts';
 import { DITHER_ALGOS, PRESETS, RenderCache, STYLES, render, resolveParams } from '../src/engine/index.ts';
 import { createF, hexToRgb } from '../src/engine/pixels.ts';
 
 const factory = (w: number, h: number) => createCanvas(w, h);
+
+const tempDirs: string[] = [];
+const tempDir = (prefix: string) => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+};
+after(() => { for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true }); });
 
 function gradient(w: number, h: number) {
   const data = new Uint8ClampedArray(w * h * 4);
@@ -84,7 +92,7 @@ test('preview at a smaller size matches the full render scaled down', () => {
 });
 
 test('CLI renders a file and reports JSON', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ascii-maker-'));
+  const dir = tempDir('ascii-maker-');
   const input = join(dir, 'in.png');
   const c = createCanvas(64, 48);
   const ctx = c.getContext('2d');
@@ -155,7 +163,7 @@ test('zip writer produces an archive standard tools can read', async () => {
     p += 46 + nameLen;
   }
   // Cross-check with Python's zipfile when it's available (it is on dev machines and GitHub runners).
-  const dir = mkdtempSync(join(tmpdir(), 'ascii-zip-'));
+  const dir = tempDir('ascii-zip-');
   writeFileSync(join(dir, 't.zip'), buf);
   try {
     const out = execFileSync('python3', ['-c', 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(z.testzip(), len(z.namelist()))', join(dir, 't.zip')], { encoding: 'utf8' });
@@ -168,7 +176,7 @@ test('zip writer produces an archive standard tools can read', async () => {
 test('CLI converts a video, keeping frame count, size and audio', (t) => {
   const has = (bin: string) => { try { execFileSync(bin, ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } };
   if (!has('ffmpeg') || !has('ffprobe')) return t.skip('ffmpeg not installed');
-  const dir = mkdtempSync(join(tmpdir(), 'ascii-video-'));
+  const dir = tempDir('ascii-video-');
   const input = join(dir, 'in.mp4'), out = join(dir, 'out.mp4');
   execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24:duration=1', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', input]);
@@ -252,7 +260,7 @@ test('painted mask adds and removes glyphs, mapped through its region', () => {
 });
 
 test('cli --mask clears glyphs under black and leaves transparent areas alone', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ascii-mask-'));
+  const dir = tempDir('ascii-mask-');
   const png = (name: string, draw: (ctx: ReturnType<ReturnType<typeof createCanvas>['getContext']>) => void, w = 96, h = 32) => {
     const c = createCanvas(w, h);
     draw(c.getContext('2d'));
