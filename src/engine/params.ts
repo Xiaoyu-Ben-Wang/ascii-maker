@@ -166,18 +166,18 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
   },
   cross: {
     description: 'Cross-stitch "+" and "×" marks that grow with brightness',
-    params: { style: 'cross', cellSize: 16, threshold: 0.28, strokeWidth: 0.1, bgBlur: 3, bgOpacity: 0.55, glyphTint: 0.3, glyphBoost: 1.5, bloom: 0.6 },
+    params: { style: 'cross', cellSize: 16, threshold: 0.28, strokeWidth: 0.1, bgBlur: 3, bgOpacity: 0.85, glyphTint: 0.3, glyphBoost: 1.5, bloom: 0.6 },
   },
   diagonal: {
     description: 'Hatched slashes that follow the image edges, warm film look',
     params: {
       style: 'diagonal', cellSize: 12, threshold: 0.25, strokeWidth: 0.09, diagonalMode: 'edge', bgBlur: 5,
-      bgOpacity: 0.65, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.4, vignette: 0.25, grain: 0.06,
+      bgOpacity: 0.85, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.4, vignette: 0.25, grain: 0.06,
     },
   },
   dots: {
     description: 'Halftone dots that scale with brightness',
-    params: { style: 'dots', cellSize: 12, threshold: 0.12, bgBlur: 5, bgOpacity: 0.35, glyphTint: 0.2, bloom: 0.3 },
+    params: { style: 'dots', cellSize: 12, threshold: 0.12, bgBlur: 5, bgOpacity: 0.85, glyphTint: 0.2, bloom: 0.3 },
   },
   'full-ascii': {
     description: 'Classic ASCII art: every cell becomes a character, in the source colors on black',

@@ -103,20 +103,30 @@ const SourceThumb = memo(function SourceThumb({ bitmap }: { bitmap: ImageBitmap 
   return <canvas ref={ref} className="block h-12 w-auto" />;
 });
 
-export function Filmstrip({ images, activeId, onSelect, onAdd }: { images: Img[]; activeId: number | null; onSelect: (id: number) => void; onAdd: () => void }) {
+export function Filmstrip({ images, activeId, onSelect, onRemove, onAdd }: {
+  images: Img[]; activeId: number | null; onSelect: (id: number) => void; onRemove: (id: number) => void; onAdd: () => void;
+}) {
   return (
     <div className="glass absolute bottom-12 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl border border-line p-1.5 shadow-lg">
       {images.map((img) => (
-        <button
-          key={img.id}
-          onClick={() => onSelect(img.id)}
-          aria-label={img.name}
-          title={img.name}
-          className={cx('press shrink-0 overflow-hidden rounded-md outline-none ring-2 ring-offset-0 transition-[box-shadow,opacity] duration-150 focus-visible:ring-accent/60',
-            img.id === activeId ? 'ring-accent' : 'opacity-60 ring-transparent hover:opacity-100')}
-        >
-          <SourceThumb bitmap={img.bitmap} />
-        </button>
+        <div key={img.id} className="group relative shrink-0">
+          <button
+            onClick={() => onSelect(img.id)}
+            aria-label={img.name}
+            title={img.name}
+            className={cx('press block overflow-hidden rounded-md outline-none ring-2 ring-offset-0 transition-[box-shadow,opacity] duration-150 focus-visible:ring-accent/60',
+              img.id === activeId ? 'ring-accent' : 'opacity-60 ring-transparent hover:opacity-100')}
+          >
+            <SourceThumb bitmap={img.bitmap} />
+          </button>
+          <button
+            onClick={() => onRemove(img.id)}
+            aria-label={`Remove ${img.name}`}
+            className="press glass absolute top-1 right-1 flex size-5 items-center justify-center rounded border border-line text-muted opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:text-fg focus-visible:opacity-100 pointer-coarse:opacity-100"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
       ))}
       <button onClick={onAdd} aria-label="Add images" className="press flex h-12 w-10 shrink-0 items-center justify-center rounded-md border border-dashed border-line-strong text-muted hover:text-fg">
         <Plus className="size-4" />

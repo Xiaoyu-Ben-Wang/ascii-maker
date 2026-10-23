@@ -443,7 +443,7 @@ export function App() {
             </div>
           )}
 
-          {!grid && images.length > 1 && <Filmstrip images={images} activeId={activeId} onSelect={setActiveId} onAdd={() => fileInput.current?.click()} />}
+          {!grid && images.length > 1 && <Filmstrip images={images} activeId={activeId} onSelect={setActiveId} onRemove={removeImage} onAdd={() => fileInput.current?.click()} />}
 
           {!grid && active && shown && frame && (
             <div className="glass absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-line px-3 py-1 font-mono text-[11px] text-muted tabular-nums">
