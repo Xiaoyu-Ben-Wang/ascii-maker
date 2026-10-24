@@ -1,10 +1,11 @@
-import { BookmarkPlus, RotateCcw, Trash2 } from 'lucide-react';
+import { BookmarkPlus, ClipboardPaste, Copy, RotateCcw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { PRESETS } from '../../engine/index.ts';
 import { CUSTOM, userPresetName, type Look } from '../hooks/useLook.ts';
-import { Button, Popover, Select, TextField, Tip } from './ui.tsx';
+import { keyFor } from '../lib/shortcuts.ts';
+import { Button, Kbd, Popover, Select, TextField, Tip } from './ui.tsx';
 
-export function PresetBar({ look }: { look: Look }) {
+export function PresetBar({ look, onCopy, onPaste }: { look: Look; onCopy?: () => void; onPaste?: () => void }) {
   const [saveOpen, setSaveOpen] = useState(false);
   const [name, setName] = useState('');
   const user = userPresetName(look.preset);
@@ -39,6 +40,12 @@ export function PresetBar({ look }: { look: Look }) {
             <Button size="icon" aria-label="Delete preset" onClick={look.deletePreset}><Trash2 className="size-3.5" /></Button>
           </Tip>
         )}
+        <Tip label={<>Copy settings<Kbd>{keyFor('copySettings')}</Kbd></>}>
+          <Button size="icon" aria-label="Copy settings" disabled={!onCopy} onClick={onCopy}><Copy className="size-3.5" /></Button>
+        </Tip>
+        <Tip label={<>Paste settings<Kbd>{keyFor('pasteSettings')}</Kbd></>}>
+          <Button size="icon" aria-label="Paste settings" disabled={!onPaste} onClick={onPaste}><ClipboardPaste className="size-3.5" /></Button>
+        </Tip>
         <Tip label={look.preset === CUSTOM ? 'Reset everything to defaults' : 'Undo all changes to this preset'}>
           <Button size="icon" aria-label="Reset to preset" disabled={!look.edits} onClick={look.reset}><RotateCcw className="size-3.5" /></Button>
         </Tip>

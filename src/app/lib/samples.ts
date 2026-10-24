@@ -13,8 +13,8 @@ export const EXAMPLES: { source: SampleSource; preset: string }[] = [
 
 export const exampleUrl = (file: string) => new URL(`examples/${file}`, document.baseURI).href;
 
-export async function loadSample(name: SampleSource): Promise<ImageBitmap> {
+export async function loadSample(name: SampleSource): Promise<Blob> {
   const res = await fetch(exampleUrl(`${name}.jpg`));
   if (!res.ok) throw new Error(`sample ${name}: ${res.status}`);
-  return createImageBitmap(await res.blob());
+  return res.blob();
 }

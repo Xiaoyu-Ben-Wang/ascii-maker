@@ -1,5 +1,5 @@
 import type { Frame } from '../../engine/index.ts';
-import type { Img } from '../hooks/useImages.ts';
+import type { Img } from '../hooks/useCatalog.ts';
 import type { Preview } from '../hooks/usePreview.ts';
 import { Scrubber } from './Scrubber.tsx';
 import { cx } from './ui.tsx';

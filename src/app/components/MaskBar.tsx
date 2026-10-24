@@ -1,11 +1,12 @@
 import { Check, Eraser, Eye, EyeOff, Minus, Plus, Trash2, Undo2 } from 'lucide-react';
 import type { MaskTool } from '../lib/mask.ts';
+import { keyFor } from '../lib/shortcuts.ts';
 import { Button, Kbd, Tip, cx } from './ui.tsx';
 
 const TOOLS: { tool: MaskTool; label: string; key: string; icon: typeof Plus }[] = [
-  { tool: 'add', label: 'Add glyphs', key: 'A', icon: Plus },
-  { tool: 'remove', label: 'Remove glyphs', key: 'R', icon: Minus },
-  { tool: 'erase', label: 'Erase mask', key: 'E', icon: Eraser },
+  { tool: 'add', label: 'Add glyphs', key: keyFor('maskAdd'), icon: Plus },
+  { tool: 'remove', label: 'Remove glyphs', key: keyFor('maskRemove'), icon: Minus },
+  { tool: 'erase', label: 'Erase mask (or hold Alt)', key: 'Alt', icon: Eraser },
 ];
 
 export function MaskBar({ tool, size, overlay, canUndo, onTool, onSize, onOverlay, onUndo, onClear, onDone }: {
@@ -36,13 +37,13 @@ export function MaskBar({ tool, size, overlay, canUndo, onTool, onSize, onOverla
           {overlay ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
         </Button>
       </Tip>
-      <Tip label={<>Undo stroke<Kbd>Ctrl Z</Kbd></>}>
+      <Tip label={<>Undo stroke<Kbd>{keyFor('undo')}</Kbd></>}>
         <Button size="icon" aria-label="Undo stroke" disabled={!canUndo} onClick={onUndo}><Undo2 className="size-4" /></Button>
       </Tip>
       <Tip label="Clear mask">
         <Button size="icon" aria-label="Clear mask" onClick={onClear}><Trash2 className="size-4" /></Button>
       </Tip>
-      <Tip label={<>Done<Kbd>M</Kbd></>}>
+      <Tip label={<>Done<Kbd>{keyFor('mask')}</Kbd></>}>
         <Button size="sm" variant="primary" onClick={onDone} className="ml-0.5"><Check className="size-3.5" />Done</Button>
       </Tip>
     </div>

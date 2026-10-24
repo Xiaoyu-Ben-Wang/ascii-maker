@@ -11,8 +11,8 @@ const SIZES = [
   { value: '4k' as const, label: '4K' },
 ];
 
-export function ExportBar({ exporter, grid, count, isVideo, canExport, frame, text, onExport, onExportAll, onCopyText, onCopyCli, onSaveParams }: {
-  exporter: Exporter; grid: boolean; count: number; isVideo: boolean; canExport: boolean; frame: Frame | null; text?: string;
+export function ExportBar({ exporter, grid, count, selectedOnly = false, isVideo, canExport, frame, text, onExport, onExportAll, onCopyText, onCopyCli, onSaveParams }: {
+  exporter: Exporter; grid: boolean; count: number; selectedOnly?: boolean; isVideo: boolean; canExport: boolean; frame: Frame | null; text?: string;
   onExport: () => void; onExportAll: () => void; onCopyText: () => void; onCopyCli: () => void; onSaveParams: () => void;
 }) {
   const { settings: s, update, encodable, job } = exporter;
@@ -27,7 +27,7 @@ export function ExportBar({ exporter, grid, count, isVideo, canExport, frame, te
         </>
       ) : grid ? (
         <Button variant="primary" className="flex-1" disabled={!count} onClick={onExportAll}>
-          <Download className="size-4" />Export all {count}
+          <Download className="size-4" />{selectedOnly ? `Export ${count} selected` : `Export all ${count}`}
         </Button>
       ) : (
         <Button variant="primary" className="flex-1" disabled={!canExport} onClick={onExport}>

@@ -1,68 +1,38 @@
 import { Film, Plus, X } from 'lucide-react';
-import { memo, useEffect, useRef, useState } from 'react';
-import { frameFor, type Params, type SizeName } from '../../engine/index.ts';
-import type { Img } from '../hooks/useImages.ts';
-import type { Renderer } from '../lib/renderer.ts';
+import { memo, useEffect, useRef } from 'react';
+import { frameFor, type SizeName } from '../../engine/index.ts';
+import type { Img } from '../hooks/useCatalog.ts';
 import { formatTime } from '../lib/video.ts';
 import { cx } from './ui.tsx';
 
-const THUMB_W = 720;
+export interface SelectMods { toggle: boolean; range: boolean }
 
-const Card = memo(function Card({ img, params, size, renderer, gen, active, onOpen, onRemove }: {
-  img: Img; params: Params; size: SizeName; renderer: Renderer | null; gen: number; active: boolean; onOpen: () => void; onRemove: () => void;
+const Card = memo(function Card({ img, size, active, selected, onSelect, onOpen, onRemove }: {
+  img: Img; size: SizeName; active: boolean; selected: boolean;
+  onSelect: (id: number, mods: SelectMods) => void; onOpen: (id: number) => void; onRemove: (id: number) => void;
 }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const [ms, setMs] = useState<number | null>(null);
-  const [visible, setVisible] = useState(false);
-  const [cssWidth, setCssWidth] = useState(0);
   const frame = frameFor(img.width, img.height, size);
-  /** What is drawn, so scrolling back into view doesn't re-render an unchanged card. */
-  const drawn = useRef<{ params: Params; size: SizeName; width: number; gen: number; bitmap: ImageBitmap } | null>(null);
-
-  // Only render cards on (or near) screen, at the size they are shown.
-  useEffect(() => {
-    const el = ref.current!;
-    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { rootMargin: '300px' });
-    const ro = new ResizeObserver(([e]) => setCssWidth(Math.ceil(e.contentRect.width / 64) * 64));
-    io.observe(el);
-    ro.observe(el);
-    return () => { io.disconnect(); ro.disconnect(); };
-  }, []);
-
-  useEffect(() => {
-    if (!renderer || !visible || !cssWidth) return;
-    let cancelled = false;
-    const frame = frameFor(img.width, img.height, size);
-    const width = Math.min(THUMB_W, frame.width, Math.round(cssWidth * Math.min(2, devicePixelRatio)));
-    const d = drawn.current;
-    if (d && d.params === params && d.size === size && d.width === width && d.gen === gen && d.bitmap === img.bitmap) return;
-    const height = Math.max(1, Math.round((width * frame.height) / frame.width));
-    const t = setTimeout(() => {
-      renderer.thumb({ sourceId: img.id, width, height, crop: frame.crop, targetWidth: frame.width, params }).then((r) => {
-        if (!r) return;
-        if (cancelled || !ref.current) { r.bitmap.close(); return; }
-        ref.current.getContext('bitmaprenderer')!.transferFromImageBitmap(r.bitmap);
-        drawn.current = { params, size, width, gen, bitmap: img.bitmap };
-        setMs(r.ms);
-      });
-    }, 100);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [renderer, img, params, size, visible, cssWidth, gen]);
 
   return (
-    <div className={cx('group relative overflow-hidden rounded-xl border bg-surface transition-colors duration-150', active ? 'border-accent/50' : 'border-line hover:border-line-strong')}>
-      <button onClick={onOpen} className="press block w-full outline-none focus-visible:ring-2 focus-visible:ring-accent/40" aria-label={`Open ${img.name}`}>
-        <canvas ref={ref} className="block w-full bg-ink" style={{ aspectRatio: `${frame.width} / ${frame.height}` }} />
+    <div className={cx('group relative overflow-hidden rounded-xl border bg-surface transition-colors duration-150',
+      selected ? 'border-accent ring-2 ring-accent/40' : active ? 'border-accent/50' : 'border-line hover:border-line-strong')}>
+      <button aria-pressed={selected} aria-label={`Select ${img.name}`} title="Double-click to view"
+        onClick={(e) => onSelect(img.id, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })} onDoubleClick={() => onOpen(img.id)}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onOpen(img.id); } }}
+        className="press block w-full outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
+        {img.thumb
+          ? <img src={img.thumb} alt="" className="block w-full bg-ink object-cover" style={{ aspectRatio: `${frame.width} / ${frame.height}` }} />
+          : <div className="block w-full animate-pulse bg-ink" style={{ aspectRatio: `${frame.width} / ${frame.height}` }} />}
       </button>
       <div className="flex items-center justify-between gap-2 px-3 py-2">
         <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg">
-          {img.video && <Film className="size-3.5 shrink-0 text-muted" aria-label="Video" />}
+          {img.kind === 'video' && <Film className="size-3.5 shrink-0 text-muted" aria-label="Video" />}
           <span className="truncate">{img.name}</span>
         </span>
-        <span className="shrink-0 font-mono text-[10px] text-faint tabular-nums">{img.video && `${formatTime(img.video.info.duration)} · `}{frame.width}×{frame.height}{ms !== null && ` · ${Math.round(ms)}ms`}</span>
+        <span className="shrink-0 font-mono text-[10px] text-faint tabular-nums">{img.video && `${formatTime(img.video.info.duration)} · `}{frame.width}×{frame.height}</span>
       </div>
       <button
-        onClick={onRemove}
+        onClick={() => onRemove(img.id)}
         aria-label={`Remove ${img.name}`}
         className="press glass absolute top-2 right-2 flex size-6 items-center justify-center rounded-md border border-line text-muted opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:text-fg focus-visible:opacity-100"
       >
@@ -72,16 +42,16 @@ const Card = memo(function Card({ img, params, size, renderer, gen, active, onOp
   );
 });
 
-export function Gallery({ images, activeId, params, size, renderer, gen, onOpen, onRemove, onAdd }: {
-  images: Img[]; activeId: number | null; params: Params; size: SizeName; renderer: Renderer | null; gen: number;
-  onOpen: (id: number) => void; onRemove: (id: number) => void; onAdd: () => void;
+export function Gallery({ images, activeId, selected, size, onSelect, onOpen, onRemove, onAdd }: {
+  images: Img[]; activeId: number | null; selected: ReadonlySet<number>; size: SizeName;
+  onSelect: (id: number, mods: SelectMods) => void; onOpen: (id: number) => void; onRemove: (id: number) => void; onAdd: () => void;
 }) {
   return (
     <div className="stage-grid absolute inset-0 overflow-y-auto px-4 pt-16 pb-16 md:px-6">
       <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] items-start gap-4">
         {images.map((img) => (
-          <Card key={img.id} img={img} params={params} size={size} renderer={renderer} gen={gen} active={img.id === activeId}
-            onOpen={() => onOpen(img.id)} onRemove={() => onRemove(img.id)} />
+          <Card key={img.id} img={img} size={size} active={img.id === activeId} selected={selected.has(img.id)}
+            onSelect={onSelect} onOpen={onOpen} onRemove={onRemove} />
         ))}
         <button onClick={onAdd} className="press flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line-strong text-muted outline-none hover:border-accent/50 hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40">
           <Plus className="size-5" />
@@ -91,17 +61,19 @@ export function Gallery({ images, activeId, params, size, renderer, gen, onOpen,
   );
 }
 
-const SourceThumb = memo(function SourceThumb({ bitmap }: { bitmap: ImageBitmap }) {
+const Thumb = memo(function Thumb({ img }: { img: Img }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const bitmap = img.thumb ? null : img.bitmap;
   useEffect(() => {
     const c = ref.current;
-    if (!c) return;
+    if (!c || !bitmap) return;
     const h = 96;
     c.height = h;
     c.width = Math.max(1, Math.round((bitmap.width * h) / bitmap.height));
     c.getContext('2d')!.drawImage(bitmap, 0, 0, c.width, c.height);
   }, [bitmap]);
-  return <canvas ref={ref} className="block h-12 w-auto" />;
+  if (img.thumb) return <img src={img.thumb} alt="" className="block h-12 w-auto" />;
+  return <canvas ref={ref} className="block h-12 w-12 bg-ink" />;
 });
 
 export function Filmstrip({ images, activeId, onSelect, onRemove, onAdd }: {
@@ -118,8 +90,8 @@ export function Filmstrip({ images, activeId, onSelect, onRemove, onAdd }: {
             className={cx('press relative block overflow-hidden rounded-md outline-none ring-2 ring-offset-0 transition-[box-shadow,opacity] duration-150 focus-visible:ring-accent/60',
               img.id === activeId ? 'ring-accent' : 'opacity-60 ring-transparent hover:opacity-100')}
           >
-            <SourceThumb bitmap={img.bitmap} />
-            {img.video && <Film className="absolute bottom-1 left-1 size-3 text-white drop-shadow" aria-hidden />}
+            <Thumb img={img} />
+            {img.kind === 'video' && <Film className="absolute bottom-1 left-1 size-3 text-white drop-shadow" aria-hidden />}
           </button>
           <button
             onClick={() => onRemove(img.id)}

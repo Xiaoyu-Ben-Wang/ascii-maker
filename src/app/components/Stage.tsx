@@ -1,7 +1,7 @@
 import { ImageUp, Sparkles, ZoomOut } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { Frame } from '../../engine/index.ts';
-import { NO_ZOOM, usePanZoom } from '../hooks/usePanZoom.ts';
+import { NO_ZOOM, usePanZoom, type ZoomControl } from '../hooks/usePanZoom.ts';
 import { EXAMPLES, exampleUrl, type SampleSource } from '../lib/samples.ts';
 import { MaskLayer, type Paint } from './MaskLayer.tsx';
 import { Button, cx } from './ui.tsx';
@@ -18,19 +18,30 @@ interface Props {
   holdOriginal: boolean;
   onOpen: () => void;
   onSamples: () => void;
+  /** Show the start screen when there is no image. */
+  empty: boolean;
+  /** Shown, softened, while the source decodes. */
+  placeholder?: string | null;
   onExample: (source: SampleSource, preset: string) => void;
   /** Clicking or dragging on the image picks a point (0..1 of width and height). */
   pick?: { x: number; y: number; onPick: (x: number, y: number) => void; onDone: () => void } | null;
   paint?: Paint | null;
+  /** Filled in with the stage's zoom controls, for keyboard shortcuts. */
+  zoom?: RefObject<ZoomControl | null>;
 }
 
-export function Stage({ original, viewKey, frame, result, split, onSplit, holdOriginal, onOpen, onSamples, onExample, pick, paint }: Props) {
+export function Stage({ original, viewKey, frame, result, split, onSplit, holdOriginal, onOpen, onSamples, empty, placeholder, onExample, pick, paint, zoom }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const origRef = useRef<HTMLCanvasElement>(null);
   const resRef = useRef<HTMLCanvasElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [fit, setFit] = useState({ w: 0, h: 0 });
-  const [view, setView] = usePanZoom(stageRef, fit, !!original);
+  // The zoom at which one rendered pixel is one device pixel.
+  const actual = frame && fit.w ? Math.max(1, frame.width / (fit.w * devicePixelRatio)) : 1;
+  const { view, setView, spacePan, control } = usePanZoom(stageRef, fit, !!original, actual);
+  if (zoom) zoom.current = control.current;
+  const crisp = view.z >= actual * 0.99;
+  const rendering = crisp ? 'pixelated' : 'auto';
 
   const key = viewKey ?? original;
   useEffect(() => setView(NO_ZOOM), [key, frame, setView]);
@@ -97,7 +108,7 @@ export function Stage({ original, viewKey, frame, result, split, onSplit, holdOr
   return (
     <div
       ref={stageRef}
-      className={cx('stage-grid absolute inset-0 flex items-center justify-center overflow-hidden px-4', original && 'select-none', view.z > 1 && 'cursor-grab active:cursor-grabbing')}
+      className={cx('stage-grid absolute inset-0 flex items-center justify-center overflow-hidden px-4', original && 'select-none', (view.z > 1 || spacePan) && 'cursor-grab active:cursor-grabbing')}
       // Page pinch and double-tap zoom are handled here instead; one-finger scrolling still moves the page until zoomed.
       style={original ? { touchAction: view.z > 1 ? 'none' : 'pan-x pan-y', WebkitTouchCallout: 'none' } : undefined}
     >
@@ -106,8 +117,8 @@ export function Stage({ original, viewKey, frame, result, split, onSplit, holdOr
           className="relative shadow-[0_30px_80px_-20px_rgb(0_0_0/0.8)] ring-1 ring-white/[0.06]"
           style={{ width: fit.w, height: fit.h, transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}
         >
-          <canvas ref={origRef} className="absolute inset-0 size-full" />
-          <canvas ref={resRef} className="absolute inset-0 size-full" style={{ clipPath: clip }} />
+          <canvas ref={origRef} className="absolute inset-0 size-full" style={{ imageRendering: rendering }} />
+          <canvas ref={resRef} className="absolute inset-0 size-full" style={{ clipPath: clip, imageRendering: rendering }} />
           {pick && (
             <div data-overlay className="absolute inset-0 z-20 cursor-crosshair touch-none" onPointerDown={startPick}>
               <div className="pointer-events-none absolute size-5 -translate-1/2 rounded-full border-2 border-accent shadow-[0_0_0_1px_rgb(0_0_0/0.6),0_0_12px_rgb(157_251_208/0.6)]"
@@ -122,7 +133,9 @@ export function Stage({ original, viewKey, frame, result, split, onSplit, holdOr
             </div>
           )}
         </div>
-      ) : (
+      ) : placeholder && frame && fit.w ? (
+        <img src={placeholder} alt="" className="blur-[2px]" style={{ width: fit.w, height: fit.h, objectFit: 'cover' }} />
+      ) : empty && (
         <div className="flex max-h-full w-full max-w-3xl flex-col items-center overflow-y-auto py-16 text-center">
           <div className="mb-5 font-mono text-[11px] leading-[1.15] whitespace-pre text-accent/70 select-none" aria-hidden>
             {'  .:-=+xX0S8#@\n .:-=+xX0S8#@@\n:-=+xX0S8#@@@\n'}
@@ -149,13 +162,15 @@ export function Stage({ original, viewKey, frame, result, split, onSplit, holdOr
           </div>
         </div>
       )}
-      {original && view.z > 1 && (
+      {original && frame && (
         <button
-          onClick={() => setView(NO_ZOOM)}
-          aria-label="Reset zoom"
+          onClick={() => control.current.toggleActual()}
+          aria-label={view.z > 1 ? 'Zoom to fit' : 'Zoom to 100%'}
+          title="Fit / 100% (Z)"
           className="press glass absolute right-3 bottom-3 z-10 flex h-7 items-center gap-1.5 rounded-full border border-line px-2.5 font-mono text-[11px] text-fg tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-accent/40 max-sm:bottom-14"
         >
-          {view.z.toFixed(1)}×<ZoomOut className="size-3.5 text-muted" />
+          {view.z > 1 ? `${Math.round((view.z / actual) * 100)}%` : 'Fit'}
+          {view.z > 1 && <ZoomOut className="size-3.5 text-muted" />}
         </button>
       )}
     </div>

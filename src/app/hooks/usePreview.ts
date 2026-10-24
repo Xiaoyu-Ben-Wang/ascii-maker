@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Frame, Params } from '../../engine/index.ts';
 import type { Renderer } from '../lib/renderer.ts';
-import type { Img } from './useImages.ts';
+import type { Img } from './useCatalog.ts';
 
 export interface Preview { id: number; bitmap: ImageBitmap; text?: string; ms: number; gpu: boolean }
 
@@ -14,7 +14,7 @@ export function usePreview(renderer: Renderer | null, active: Img | null, frame:
   const rendered = useRef(params);
 
   useEffect(() => {
-    if (!active || !frame || !renderer || !enabled) return;
+    if (!active?.bitmap || !frame || !renderer || !enabled) return;
     let cancelled = false;
     const id = active.id;
     const t = setTimeout(() => {

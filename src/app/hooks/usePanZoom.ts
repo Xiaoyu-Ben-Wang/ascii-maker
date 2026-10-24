@@ -2,25 +2,33 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 
 export type View = { z: number; x: number; y: number };
 export const NO_ZOOM: View = { z: 1, x: 0, y: 0 };
-const MAX_ZOOM = 8;
+export interface ZoomControl { toggleActual: () => void; zoomBy: (k: number) => void }
+/** Elements that use Space themselves. */
+const interactive = (t: EventTarget | null) => t instanceof Element && !!t.closest('input,textarea,select,button,a,[role=slider],[role=switch],[role=checkbox],[role=radio],[role=combobox]');
 
 /**
- * Pinch, pan, wheel and double-tap zoom over `ref`, for content laid out at `fit` size. Elements marked
- * data-overlay keep single-finger and mouse input for themselves. Touch events rather than pointer events, because
- * iOS Safari only lets a page take over a pinch through a non-passive touchmove.
+ * Pinch, pan, wheel and double-tap zoom over `ref`, for content laid out at `fit` size. `actual` is the zoom that
+ * shows the content at one pixel per device pixel; zoom reaches 4× that. Elements marked data-overlay keep
+ * single-finger and mouse input for themselves, except while Space is held, which pans. Touch events rather than
+ * pointer events, because iOS Safari only lets a page take over a pinch through a non-passive touchmove.
  */
-export function usePanZoom(ref: RefObject<HTMLElement | null>, fit: { w: number; h: number }, enabled: boolean) {
+export function usePanZoom(ref: RefObject<HTMLElement | null>, fit: { w: number; h: number }, enabled: boolean, actual = 1) {
   const [view, setView] = useState<View>(NO_ZOOM);
+  const [spacePan, setSpacePan] = useState(false);
   const viewRef = useRef(view);
   viewRef.current = view;
   const fitRef = useRef(fit);
   fitRef.current = fit;
+  const actualRef = useRef(actual);
+  actualRef.current = actual;
+  const control = useRef<ZoomControl>({ toggleActual: () => {}, zoomBy: () => {} });
 
   useEffect(() => {
     const el = ref.current;
     if (!el || !enabled) return;
+    const maxZoom = () => Math.max(8, actualRef.current * 4);
     const clampView = (v: View): View => {
-      const z = Math.min(MAX_ZOOM, Math.max(1, v.z));
+      const z = Math.min(maxZoom(), Math.max(1, v.z));
       if (z <= 1.001) return NO_ZOOM;
       const f = fitRef.current;
       const mx = (f.w * z) / 2, my = (f.h * z) / 2;
@@ -30,7 +38,7 @@ export function usePanZoom(ref: RefObject<HTMLElement | null>, fit: { w: number;
     const zoomAt = (v: View, k: number, cx: number, cy: number): View => {
       const r = el.getBoundingClientRect();
       const px = cx - (r.left + r.width / 2), py = cy - (r.top + r.height / 2);
-      const z = Math.min(MAX_ZOOM, Math.max(1, v.z * k));
+      const z = Math.min(maxZoom(), Math.max(1, v.z * k));
       const kk = z / v.z;
       return clampView({ z, x: px - (px - v.x) * kk, y: py - (py - v.y) * kk });
     };
@@ -132,26 +140,62 @@ export function usePanZoom(ref: RefObject<HTMLElement | null>, fit: { w: number;
     };
     const dblclick = (e: MouseEvent) => { if (!onOverlay(e.target)) toggleAt(e.clientX, e.clientY); };
     let drag: { x: number; y: number; v: View } | null = null;
+    let space = false;
+    let pointer: { x: number; y: number } | null = null;
     const pointerDown = (e: PointerEvent) => {
-      if (e.pointerType !== 'mouse' || e.button !== 0 || viewRef.current.z <= 1 || onOverlay(e.target)) return;
+      if (e.pointerType !== 'mouse' || e.button !== 0 || viewRef.current.z <= 1 || (onOverlay(e.target) && !space)) return;
+      // Captured before overlays see it, so a held Space pans instead of painting or picking.
+      if (space) { e.stopPropagation(); e.preventDefault(); }
       drag = { x: e.clientX, y: e.clientY, v: viewRef.current };
       el.setPointerCapture(e.pointerId);
     };
     const pointerMove = (e: PointerEvent) => {
+      pointer = { x: e.clientX, y: e.clientY };
       if (drag) apply({ ...drag.v, x: drag.v.x + e.clientX - drag.x, y: drag.v.y + e.clientY - drag.y });
     };
+    const pointerLeave = () => { pointer = null; };
+    /** The cursor if it is over the stage, else the stage center. */
+    const focus = () => {
+      if (pointer) return pointer;
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    };
+    control.current = {
+      toggleActual: () => {
+        const v = viewRef.current, a = actualRef.current, f = focus();
+        apply(v.z >= a * 0.99 && v.z > 1 ? NO_ZOOM : zoomAt(v, a / v.z, f.x, f.y));
+      },
+      zoomBy: (k) => { const f = focus(); apply(zoomAt(viewRef.current, k, f.x, f.y)); },
+    };
+    const keyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || interactive(e.target)) return;
+      e.preventDefault();
+      if (!space) { space = true; setSpacePan(true); }
+    };
+    const keyUp = (e: KeyboardEvent) => { if (e.code === 'Space') { space = false; setSpacePan(false); } };
+    const blur = () => { space = false; setSpacePan(false); };
+    window.addEventListener('keydown', keyDown);
+    window.addEventListener('keyup', keyUp);
+    window.addEventListener('blur', blur);
+    el.addEventListener('pointerdown', pointerDown, { capture: true });
     const pointerUp = () => { drag = null; };
 
     const opts = { passive: false } as const;
     const listeners: [string, (e: never) => void][] = [
       ['touchstart', touchStart], ['touchmove', touchMove], ['touchend', touchEnd], ['touchcancel', touchEnd],
       ['gesturestart', gestureStart], ['gesturechange', gestureChange], ['gestureend', gestureEnd],
-      ['wheel', wheel], ['dblclick', dblclick], ['pointerdown', pointerDown], ['pointermove', pointerMove],
+      ['wheel', wheel], ['dblclick', dblclick], ['pointermove', pointerMove], ['pointerleave', pointerLeave],
       ['pointerup', pointerUp], ['pointercancel', pointerUp],
     ];
     for (const [type, fn] of listeners) el.addEventListener(type, fn as EventListener, opts);
-    return () => { for (const [type, fn] of listeners) el.removeEventListener(type, fn as EventListener); };
+    return () => {
+      for (const [type, fn] of listeners) el.removeEventListener(type, fn as EventListener);
+      el.removeEventListener('pointerdown', pointerDown, { capture: true });
+      window.removeEventListener('keydown', keyDown);
+      window.removeEventListener('keyup', keyUp);
+      window.removeEventListener('blur', blur);
+    };
   }, [ref, enabled]);
 
-  return [view, setView] as const;
+  return { view, setView, spacePan, control };
 }

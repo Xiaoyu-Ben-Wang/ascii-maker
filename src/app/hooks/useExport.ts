@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { frameFor, type Params, type SizeName } from '../../engine/index.ts';
+import { frameFor, type SizeName } from '../../engine/index.ts';
 import { download, extensionOf, uniqueName, zip } from '../lib/files.ts';
 import { CanceledError, type Renderer, type VideoProgress } from '../lib/renderer.ts';
 import { encodableFormats, evenSize, type VideoFormat } from '../lib/video.ts';
-import type { Img } from './useImages.ts';
+import type { Img } from './useCatalog.ts';
 
 export const IMAGE_FORMATS = [
   { value: 'image/png', label: 'PNG' },
@@ -39,7 +39,7 @@ function abortable<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
-export function useExport(renderer: Renderer | null, images: Img[], active: Img | null, notify: (text: string) => void) {
+export function useExport(renderer: Renderer | null, images: Img[], active: Img | null, notify: (text: string) => void, ensure: (id: number) => Promise<Img | null>) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const update = useCallback((patch: Partial<ExportSettings>) => setSettings((s) => ({ ...s, ...patch })), []);
   const [job, setJob] = useState<Job | null>(null);
@@ -48,7 +48,7 @@ export function useExport(renderer: Renderer | null, images: Img[], active: Img 
   imagesRef.current = images;
 
   // Which video formats this browser can encode, checked for the active (or first) video.
-  const sampleVideo = active?.video ? active : images.find((i) => i.video) ?? null;
+  const sampleVideo = active?.kind === 'video' ? active : images.find((i) => i.kind === 'video') ?? null;
   const [encodable, setEncodable] = useState<VideoFormat[] | null>(null);
   const sampleW = sampleVideo?.width ?? 0, sampleH = sampleVideo?.height ?? 0;
   useEffect(() => {
@@ -63,8 +63,11 @@ export function useExport(renderer: Renderer | null, images: Img[], active: Img 
     return () => { live = false; };
   }, [sampleW, sampleH, settings.size]);
 
-  /** Renders one image, or every frame of a video, at the export size. */
-  const render = useCallback(async (img: Img, p: Params, signal: AbortSignal, onFrame?: (v: VideoProgress, total: number) => void) => {
+  /** Renders one image, or every frame of a video, at the export size, with its own look. */
+  const render = useCallback(async (item: Img, signal: AbortSignal, onFrame?: (v: VideoProgress, total: number) => void) => {
+    const img = await abortable(ensure(item.id), signal);
+    if (!img) throw new Error(`could not open ${item.name}`);
+    const p = img.look.params;
     const s = settings;
     const f = frameFor(img.width, img.height, s.size);
     if (img.video) {
@@ -80,7 +83,7 @@ export function useExport(renderer: Renderer | null, images: Img[], active: Img 
     }
     const r = await abortable(renderer!.export({ sourceId: img.id, width: f.width, height: f.height, crop: f.crop, params: p, mime: s.format, quality: s.quality / 100, pngLevel: s.pngLevel }), signal);
     return { ...r, name: `${img.name}-${p.style}.${extensionOf(s.format)}` };
-  }, [renderer, settings]);
+  }, [renderer, settings, ensure]);
 
   const run = useCallback(async (initial: Job, body: (signal: AbortSignal) => Promise<string>) => {
     if (!renderer || abort.current) return;
@@ -97,15 +100,15 @@ export function useExport(renderer: Renderer | null, images: Img[], active: Img 
     }
   }, [renderer, notify]);
 
-  const exportOne = useCallback((img: Img, p: Params) => run({ label: img.video ? 'Starting…' : 'Rendering…', value: img.video ? 0 : null }, async (signal) => {
-    const r = await render(img, p, signal, (v, total) => setJob({ label: `Frame ${v.frame} / ${total}`, value: v.progress }));
+  const exportOne = useCallback((img: Img) => run({ label: img.kind === 'video' ? 'Starting…' : 'Rendering…', value: img.kind === 'video' ? 0 : null }, async (signal) => {
+    const r = await render(img, signal, (v, total) => setJob({ label: `Frame ${v.frame} / ${total}`, value: v.progress }));
     download(r.blob, r.name);
     return `Exported ${r.width}×${r.height} in ${seconds(r.ms)}`;
   }), [run, render]);
 
-  /** Exports every image with one look, even if settings change meanwhile, as a .zip. */
-  const exportAll = useCallback((p: Params) => {
-    const list = imagesRef.current;
+  /** Exports the given creations (default: all), each with its own look, as a .zip. */
+  const exportAll = useCallback((ids?: ReadonlySet<number>) => {
+    const list = ids ? imagesRef.current.filter((i) => ids.has(i.id)) : imagesRef.current;
     if (!list.length) return;
     const n = list.length;
     const t0 = performance.now();
@@ -115,11 +118,11 @@ export function useExport(renderer: Renderer | null, images: Img[], active: Img 
       for (const [i, img] of list.entries()) {
         if (!imagesRef.current.some((x) => x.id === img.id)) continue;
         setJob({ label: `${i + 1} / ${n}`, value: i / n });
-        const r = await render(img, p, signal, (v, total) => setJob({ label: `${i + 1} / ${n} · frame ${v.frame} / ${total}`, value: (i + v.progress) / n }));
+        const r = await render(img, signal, (v, total) => setJob({ label: `${i + 1} / ${n} · frame ${v.frame} / ${total}`, value: (i + v.progress) / n }));
         files.push({ name: uniqueName(r.name, taken), blob: r.blob });
       }
       setJob({ label: 'Zipping…', value: 1 });
-      download(await abortable(zip(files), signal), `ascii-maker-${p.style}.zip`);
+      download(await abortable(zip(files), signal), 'ascii-maker.zip');
       return `Exported ${files.length} files in ${seconds(performance.now() - t0)}`;
     });
   }, [run, render]);

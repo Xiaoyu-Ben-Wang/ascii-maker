@@ -89,6 +89,19 @@ export class PaintMask {
     this.tintCtx.putImageData(out, x0, y0);
   }
 
+  toBlob(): Promise<Blob> {
+    return new Promise((resolve, reject) => this.gray.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('mask encode failed'))), 'image/png'));
+  }
+
+  /** Replaces the mask with a saved one (from toBlob). */
+  async load(blob: Blob) {
+    const bmp = await createImageBitmap(blob);
+    this.gray.drawImage(bmp, 0, 0, this.width, this.height);
+    bmp.close();
+    this.undo = [];
+    this.retint(0, 0, this.width, this.height);
+  }
+
   /** The mask for rendering, or null when nothing is painted. */
   read(): HighlightMask | null {
     const rgba = this.gray.getImageData(0, 0, this.width, this.height).data;

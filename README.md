@@ -26,17 +26,19 @@ Crops at full resolution from 1920 px renders, each one preset with no changes. 
 
 ![The editor: the jellyfish preview on the left, the settings panel on the right](docs/editor.jpg)
 
-Open images or videos with **Open**, drag and drop, or paste. Pick a preset at the top of the right panel, adjust it, and press **Export**. Hovering a setting's name explains it, and changed settings are marked so you can reset them one at a time.
+Open images or videos with **Import**, drag and drop, or paste. Pick a preset at the top of the right panel, adjust it, and press **Export**. Hovering a setting's name explains it, and changed settings are marked so you can reset them one at a time.
 
-**Compare.** Press `\` for a before/after divider you can drag, or hold `B` to see the original.
+**Library, Loupe and Develop.** Like Lightroom, the editor has three modes. **Library** (`G`) shows every creation; click to select, `Ctrl`/`Shift`-click to select more. **Loupe** (`E`) shows one creation at full quality: scroll to zoom, `Z` toggles fit and 100%, and hold `Space` to pan. **Develop** (`D`) is where you edit. Everything you open is saved in the browser, each creation with its own settings, mask and undo history.
+
+**Compare.** Press `\` to see the original, or `Shift+Y` for a before/after divider you can drag.
 
 ![Before/after divider over the jellyfish photo](docs/compare.jpg)
 
-**Mask brush.** The threshold decides where glyphs go. Where it gets a spot wrong, press `M` and paint: green adds glyphs, even on dark areas, and red removes them.
+**Mask brush.** The threshold decides where glyphs go. Where it gets a spot wrong, press `Shift+W` (or `K`) and paint: green adds glyphs, even on dark areas, and red removes them. Hold `Alt` to erase.
 
 ![Mask brush painting a green stroke across the dark water, which now gets faint glyphs](docs/mask.jpg)
 
-**Batches.** Load several images and press `G` to see them all rendered with the same settings. **Export all** saves them as a `.zip`.
+**Batches.** `Ctrl+Shift+C` copies a creation's settings and `Ctrl+Shift+V` pastes them, onto every selected creation in the Library. **Export** in the Library saves the selection (or everything) as a `.zip`.
 
 ![Four sample images rendered side by side](docs/grid.jpg)
 
@@ -44,24 +46,32 @@ Open images or videos with **Open**, drag and drop, or paste. Pick a preset at t
 
 **Export.** PNG, JPEG or WebP, at the original size or with the long edge at 1920, 2560 or 3840 px. The export menu can also copy the plain ASCII text, copy the matching CLI command, or save the settings as JSON for the CLI.
 
-Settings and saved presets are kept in the browser. Undo (`Ctrl+Z`) covers every change.
+Creations, settings and saved presets are kept in the browser. Undo (`Ctrl+Z`) covers every change to the creation you are editing.
 
 <details>
 <summary>Keyboard and mouse</summary>
 
+`Ctrl+/` lists every shortcut in the editor. The main ones follow Lightroom:
+
 | Input | Action |
 | --- | --- |
-| `Ctrl+O` / `Ctrl+V` | Open / paste images |
-| `Ctrl+S` / `Ctrl+Shift+S` | Export / export all |
-| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo (undoes brush strokes while the mask brush is on) |
-| `G` | Single image or all images |
-| `←` / `→` | Previous / next image |
-| `\` | Before/after split |
-| Hold `B` | Show the original |
-| `M` | Mask brush; then `A` add, `R` remove, `E` erase, `[` / `]` brush size |
-| `Esc` | Leave the mask brush or the vignette picker |
-| Mouse wheel, pinch, `Ctrl` + wheel | Zoom, up to 8× |
-| Drag, two-finger scroll | Pan while zoomed |
+| `G` / `E` / `D` | Library / Loupe / Develop |
+| `Ctrl+Shift+I` or `Ctrl+O`, `Ctrl+V` | Import / paste images |
+| `Ctrl+Shift+E` | Export (the selection, in the Library) |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste settings |
+| `Ctrl+Alt+V` | Paste the previous creation's settings |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo (brush strokes while the mask brush is on) |
+| `Ctrl+Shift+R` | Reset to the preset |
+| `Ctrl+A` / `Ctrl+D` | Select all / none, in the Library |
+| `Delete` | Remove from the library |
+| `←` / `→` | Previous / next creation |
+| `\` / `Shift+Y` | Before view / before-after split |
+| `Z`, `Ctrl+=` / `Ctrl+-` | Fit or 100% / zoom in, out |
+| `Tab` / `Shift+Tab` / `F` | Hide the side panel / all panels / fullscreen |
+| `Shift+W` or `K` | Mask brush; then `A` add, `R` remove, hold `Alt` to erase, `[` / `]` brush size |
+| `Esc` | Close, or leave the mask brush or the vignette picker |
+| Mouse wheel, pinch, `Ctrl` + wheel | Zoom, up to 400% of actual pixels |
+| Drag, two-finger scroll, hold `Space` | Pan while zoomed |
 | Double-click | Toggle between fit and 2.5× |
 
 </details>

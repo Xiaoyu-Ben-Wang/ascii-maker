@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Renderer } from '../lib/renderer.ts';
-import { closeLater, type Library } from './useImages.ts';
+import { closeLater, type Library } from './useCatalog.ts';
 
 /**
  * Video scrubbing: the scrubber moves at once, and the frame under it is decoded and rendered once it settles.
@@ -27,7 +27,7 @@ export function useScrub(renderer: Renderer | null, library: Library, notify: (t
         await renderer.addSource(id, bitmap);
         const now = live();
         if (!now) { bitmap.close(); return; }
-        closeLater(now.bitmap);
+        if (now.bitmap) closeLater(now.bitmap);
         replaceFrame(id, bitmap, time);
       }).catch((e) => notify(`Could not decode that frame: ${e instanceof Error ? e.message : e}`));
     }, 100);

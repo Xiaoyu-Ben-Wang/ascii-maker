@@ -37,5 +37,14 @@ export function useMasks(renderer: Renderer | null) {
 
   const isPainted = (id: number) => painted.current.has(id);
 
-  return { get, read, commit, undo, drop, isPainted, gen };
+  const load = useCallback(async (id: number, width: number, height: number, blob: Blob) => {
+    await get(id, width, height).load(blob);
+    commit(id);
+  }, [get, commit]);
+
+  const blob = useCallback((id: number) => masks.current.get(id)?.toBlob() ?? Promise.resolve(null), []);
+
+  return { get, read, commit, undo, drop, isPainted, load, blob, gen };
 }
+
+export type Masks = ReturnType<typeof useMasks>;

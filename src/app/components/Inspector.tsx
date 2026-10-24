@@ -291,7 +291,7 @@ function EffectRow({ e, params, base, set, toggle }: { e: Effect; params: Params
 export function Inspector({ params, base, set, picking, onPicking, resetKey }: {
   params: Params; base: Params; set: Set; picking: boolean; onPicking: (v: boolean) => void;
   /** Changes when a preset is applied, so sections re-open or collapse to match it. */
-  resetKey: number;
+  resetKey: string;
 }) {
   /** Values from before a switch was turned off, restored when it is turned back on. */
   const last = useRef<Partial<Record<keyof Params, unknown>>>({});
