@@ -1,4 +1,4 @@
-// Regenerates public/examples/ (README + homepage gallery): node scripts/examples.ts [--photo path/to/photo.jpg]
+// Regenerates public/examples/ (README and the editor's start screen): node scripts/examples.ts [--photo path/to/photo.jpg]
 import { createCanvas, ImageData, loadImage } from '@napi-rs/canvas';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
@@ -16,12 +16,26 @@ const PLAN: Record<string, string[]> = {
   orbs: ['gameboy-dither', 'matrix'],
 };
 
+/** Center of the 1:1 detail crop per source, as fractions of width and height. */
+const FOCUS: Record<string, [number, number]> = { jellyfish: [0.47, 0.48], planet: [0.5, 0.45], clouds: [0.5, 0.55], orbs: [0.6, 0.35] };
+const DETAIL = { w: 720, h: 480 };
+
 type Canvas = ReturnType<typeof createCanvas>;
 const encode = (c: Canvas, q = 86) => c.encode('jpeg', q);
 
 function fitCanvas(img: { width: number; height: number }, longEdge: number) {
   const k = Math.min(1, longEdge / Math.max(img.width, img.height));
   return createCanvas(Math.round(img.width * k), Math.round(img.height * k));
+}
+
+/** The DETAIL-sized region of `c` around its source's focus point, at 1:1. */
+function detailOf(c: Canvas, name: string): Canvas {
+  const out = createCanvas(DETAIL.w, DETAIL.h);
+  const [fx, fy] = FOCUS[name];
+  const x = Math.round(Math.min(c.width - DETAIL.w, Math.max(0, c.width * fx - DETAIL.w / 2)));
+  const y = Math.round(Math.min(c.height - DETAIL.h, Math.max(0, c.height * fy - DETAIL.h / 2)));
+  out.getContext('2d').drawImage(c, x, y, DETAIL.w, DETAIL.h, 0, 0, DETAIL.w, DETAIL.h);
+  return out;
 }
 
 async function source(name: string): Promise<Canvas | null> {
@@ -43,6 +57,7 @@ for (const [name, presets] of Object.entries(PLAN)) {
   const src = await source(name);
   if (!src) continue;
   writeFileSync(`${OUT}/${name}.jpg`, await encode(src, 88));
+  writeFileSync(`${OUT}/${name}-detail.jpg`, await encode(detailOf(src, name), 90));
   const data = src.getContext('2d').getImageData(0, 0, src.width, src.height);
   for (const preset of presets) {
     const t0 = performance.now();
@@ -56,6 +71,7 @@ for (const [name, presets] of Object.entries(PLAN)) {
     const file = `${name}-${preset}.jpg`, thumb = `${name}-${preset}-thumb.webp`;
     writeFileSync(`${OUT}/${file}`, await encode(big));
     writeFileSync(`${OUT}/${thumb}`, await small.encode('webp', 80));
+    writeFileSync(`${OUT}/${name}-${preset}-detail.jpg`, await encode(detailOf(full, name), 90));
     manifest.push({ source: name, preset, file, thumb, description: PRESETS[preset].description });
     console.log(`${file}  ${Math.round(performance.now() - t0)}ms`);
   }
