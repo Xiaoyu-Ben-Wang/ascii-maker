@@ -1,4 +1,5 @@
 import { BLOOM, HALO_GAIN } from '../effects.ts';
+import { GRAIN } from '../grain.ts';
 
 /** A JS number as a GLSL float literal. */
 const f = (n: number) => (Number.isInteger(n) ? `${n}.0` : String(n));
@@ -147,17 +148,53 @@ void main() {
 
   // Glow, color fringe, scanlines, vignette, grain and the final clamp, rounded like Uint8ClampedArray.
   final: `uniform sampler2D uImg, uComb; uniform bool uBloom; uniform ivec2 uSize, uCombSize;
-uniform float uChrom, uScan, uScanSp, uVig, uVigSize, uVigX, uVigY, uGrain; uniform uint uSeed; uniform bool uFlip;
+uniform float uChrom, uScan, uScanSp, uVig, uVigSize, uVigX, uVigY, uGrain, uGrainSz, uGrainRough, uGrainClump;
+uniform vec3 uGrainW; uniform uint uSeed; uniform bool uFlip;
 float shoulder(float v) { return v <= 0.8 ? v : 0.8 + 0.2 * (1.0 - exp(-(v - 0.8) / 0.2)); }
 vec3 at(ivec2 q) {
   vec3 c = texelFetch(uImg, q, 0).rgb;
   if (uBloom) { vec3 g = bil(uComb, uCombSize, vec2(uSize), q).rgb; c = vec3(shoulder(c.r + g.r), shoulder(c.g + g.g), shoulder(c.b + g.b)); }
   return c;
 }
-float hash(ivec2 p) {
-  uint h = uint(p.x) * 1973u + uint(p.y) * 9277u + uSeed * 26699u;
-  h = (h ^ 61u) ^ (h >> 16); h *= 9u; h ^= h >> 4; h *= 0x27d4eb2du; h ^= h >> 15;
-  return float(h) / 4294967296.0;
+// Film grain, mirroring grain.ts.
+uint hash(int x, int y, uint s) {
+  uint h = uint(x) * 0x27d4eb2du ^ uint(y) * 0x165667b1u ^ s * 0x9e3779b9u;
+  h = (h ^ (h >> 15)) * 0x85ebca6bu;
+  h = (h ^ (h >> 13)) * 0xc2b2ae35u;
+  return h ^ (h >> 16);
+}
+float corner(float t, uint h, vec2 d) {
+  if (t <= 0.0) return 0.0;
+  t *= t;
+  float a = float(h >> 24u) * (3.141592653589793 / 128.0);
+  return t * t * dot(vec2(cos(a), sin(a)), d);
+}
+float simplex(vec2 v, uint seed) {
+  const float F2 = 0.36602540378443865, G2 = 0.21132486540518713;
+  vec2 ij = floor(v + (v.x + v.y) * F2);
+  vec2 d0 = v - (ij - (ij.x + ij.y) * G2);
+  vec2 o = d0.x > d0.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  vec2 d1 = d0 - o + G2, d2 = d0 - 1.0 + 2.0 * G2;
+  int i = int(ij.x), j = int(ij.y);
+  return 70.0 * (corner(0.5 - dot(d0, d0), hash(i, j, seed), d0)
+    + corner(0.5 - dot(d1, d1), hash(i + int(o.x), j + int(o.y), seed), d1)
+    + corner(0.5 - dot(d2, d2), hash(i + 1, j + 1, seed), d2));
+}
+float grainNoise(vec2 x) {
+  float n = uGrainW.x * simplex(x * (${f(GRAIN.freq[0])} / uGrainSz), uSeed)
+    + uGrainW.y * simplex(x * (${f(GRAIN.freq[1])} / uGrainSz), uSeed + 1u)
+    + uGrainW.z * simplex(x * (${f(GRAIN.freq[2])} / uGrainSz), uSeed + 2u);
+  if (uGrainRough > 0.0) {
+    float clump = ${f(GRAIN.norm)} * simplex(x * (${f(GRAIN.clumpFreq)} / uGrainSz), uSeed + 3u);
+    n *= max(0.0, 1.0 + uGrainRough * ${f(GRAIN.clumpGain)} * clump) * uGrainClump;
+  }
+  return n;
+}
+float grainShift(float l, float g) {
+  const float D = ${f(GRAIN.delta)};
+  l = clamp(l, 0.001, 0.999);
+  float e = 0.5 - ((1.0 + 2.0 * D) / 4.0) * log((1.0 + 2.0 * D) / (l + D) - 1.0) + g;
+  return (1.0 + 2.0 * D) / (1.0 + exp(4.0 * (0.5 - e) / (1.0 + 2.0 * D))) - D - l;
 }
 void main() {
   ivec2 p = P();
@@ -177,8 +214,9 @@ void main() {
     vec2 d = (x - sz * vec2(uVigX, uVigY)) / (sz / 2.0);
     m *= 1.0 - uVig * ss(0.35 * uVigSize, uVigSize, sqrt(dot(d, d) / 2.0));
   }
-  float g = uGrain > 0.0 ? (hash(p) - 0.5) * uGrain : 0.0;
-  c = clamp(c * m + g, 0.0, 1.0);
+  c *= m;
+  if (uGrain > 0.0) c += grainShift(dot(c, vec3(0.2126, 0.7152, 0.0722)), grainNoise(x) * uGrain);
+  c = clamp(c, 0.0, 1.0);
   o = vec4(min(vec3(1.0), (c * 255.0 + 0.5) / 255.0), 1.0);
 }`,
 };

@@ -1,5 +1,6 @@
 import type { Params } from './params.ts';
-import { blur, clamp01, createF, downsample, luma, mulberry32, resizeF, smoothstep, type FImage } from './pixels.ts';
+import { GRAIN, grainClumpScale, grainNoise, grainShift, grainWeights } from './grain.ts';
+import { blur, clamp01, createF, downsample, luma, resizeF, smoothstep, type FImage } from './pixels.ts';
 
 // Shared with the GPU renderer, which must match these within a level.
 
@@ -9,6 +10,7 @@ export const bloomBand = (p: Params) => ({ lo: p.bloomThreshold - 0.1, hi: p.blo
 /** The glow is low-frequency, so it is computed at half resolution. */
 export const bloomFactor = (w: number, h: number) => (w > 64 && h > 64 ? 2 : 1);
 export const grainSeed = (p: Params, frame: number) => (p.seed * 7919 + 17 + frame * 104729) >>> 0;
+export const grainSize = (p: Params, s: number) => Math.max(0.25, p.grainSize * s);
 export const scanlineSpacing = (p: Params, s: number) => Math.max(1.5, p.scanlineSpacing * s);
 /** Makes a lone glyph's halo nearly as strong as a cluster's. */
 export const HALO_GAIN = 3;
@@ -71,7 +73,8 @@ export function postProcess(img: FImage, p: Params, s: number, glowSource: FImag
   const sp = scanlineSpacing(p, s);
   const lift = 1 + p.scanlines * 0.3;
   const vig = p.vignette > 0 ? vignetteMask(w, h, p.vignette, p.vignetteSize, p.vignetteX, p.vignetteY) : null;
-  const rand = mulberry32(grainSeed(p, frame));
+  const seed = grainSeed(p, frame), gs = grainSize(p, s), rough = p.grainRoughness;
+  const gw = grainWeights(rough), gc = grainClumpScale(rough), amount = p.grain * GRAIN.gain;
   for (let y = 0; y < h; y++) {
     let rowM = 1;
     if (p.scanlines > 0) {
@@ -80,10 +83,11 @@ export function postProcess(img: FImage, p: Params, s: number, glowSource: FImag
     }
     for (let x = 0, i = y * w; x < w; x++, i++) {
       const m = vig ? rowM * vig[i] : rowM;
-      const g = p.grain > 0 ? (rand() - 0.5) * p.grain : 0;
-      img.r[i] = clamp01(img.r[i] * m + g);
-      img.g[i] = clamp01(img.g[i] * m + g);
-      img.b[i] = clamp01(img.b[i] * m + g);
+      const r = img.r[i] * m, g = img.g[i] * m, b = img.b[i] * m;
+      const d = amount > 0 ? grainShift(luma(r, g, b), grainNoise(x, y, seed, gs, rough, gw, gc) * amount) : 0;
+      img.r[i] = clamp01(r + d);
+      img.g[i] = clamp01(g + d);
+      img.b[i] = clamp01(b + d);
     }
   }
 }

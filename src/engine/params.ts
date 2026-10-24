@@ -98,6 +98,8 @@ export interface Params {
   vignetteY: number; // 0..1 fraction of height
   chromatic: number; // px
   grain: number; // 0..1
+  grainSize: number; // px
+  grainRoughness: number; // 0..1, even to clumpy
   seed: number;
 }
 
@@ -154,6 +156,8 @@ export const DEFAULTS: Params = {
   vignetteY: 0.5,
   chromatic: 0,
   grain: 0,
+  grainSize: 1,
+  grainRoughness: 0.5,
   seed: 1,
 };
 
@@ -286,5 +290,7 @@ export const RANGES: Partial<Record<keyof Params, [min: number, max: number, ste
   vignetteY: [0, 1, 0.01],
   chromatic: [0, 12, 0.1],
   grain: [0, 0.5, 0.01],
+  grainSize: [0.5, 4, 0.05],
+  grainRoughness: [0, 1, 0.01],
   seed: [0, 9999, 1],
 };

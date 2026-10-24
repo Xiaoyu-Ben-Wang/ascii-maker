@@ -55,12 +55,12 @@ const cases: Case[] = [];
 const test = (name: string, run: () => string | void | Promise<string | void>) => cases.push({ name, run });
 
 /**
- * GPU vs CPU. Grain is off unless asked for: the two use different noise generators. The tolerance allows for
- * half-float intermediates (a level here and there), not for misplaced or missing glyphs.
+ * GPU vs CPU. Grain is off unless the params set it. The tolerance allows for half-float intermediates (a level
+ * here and there), not for misplaced or missing glyphs.
  */
 function matchesCpu(name: string, src: RGBAImage, params: Partial<Params>, opts: { targetWidth?: number; mask?: HighlightMask; tol?: number; anyMax?: boolean } = {}) {
   test(`GPU matches CPU: ${name}`, () => {
-    const p = resolveParams(params, { grain: 0 });
+    const p = resolveParams({ grain: 0 }, params);
     const o = { createCanvas, targetWidth: opts.targetWidth, mask: opts.mask };
     const c = render(src, p, o);
     const g = gpu!.render(src, p, o);
@@ -236,16 +236,16 @@ test('repeated renders are deterministic and do not grow GPU memory', () => {
   return `${before} pooled textures, steady`;
 });
 
-test('grain animates per frame on the GPU, at the same strength as the CPU', () => {
+for (const [label, o] of [['fine', { grainSize: 0.5, grainRoughness: 0 }], ['default', {}], ['coarse, rough', { grainSize: 3, grainRoughness: 1 }]] as const)
+  matchesCpu(`grain, ${label}`, base, { style: 'photo', bgBlur: 0, bgOpacity: 1, unitWidth: 0, grain: 0.3, ...o });
+
+test('grain animates per frame on the GPU', () => {
   const src = image(320, 200);
   const p = resolveParams({ style: 'photo', bgBlur: 0, bgOpacity: 1, grain: 0.2 });
-  const plain = resolveParams(p, { grain: 0 });
   const g0 = gpu.render(src, p, { createCanvas, frame: 0 }).data, g1 = gpu.render(src, p, { createCanvas, frame: 1 }).data;
   if (diff(g0, g1).mean < 1) throw new Error('grain does not change between frames');
-  const gpuNoise = diff(g0, gpu.render(src, plain, { createCanvas }).data).mean;
-  const cpuNoise = diff(render(src, p, { createCanvas }).data, render(src, plain, { createCanvas }).data).mean;
-  if (Math.abs(gpuNoise - cpuNoise) > cpuNoise * 0.2) throw new Error(`GPU grain ${gpuNoise.toFixed(2)} vs CPU ${cpuNoise.toFixed(2)}`);
-  return `mean grain GPU ${gpuNoise.toFixed(2)}, CPU ${cpuNoise.toFixed(2)}`;
+  const d = diff(g1, render(src, p, { createCanvas, frame: 1 }).data);
+  if (d.over > 0.0005) throw new Error(`frame 1 differs from the CPU: ${fmt(d)}`);
 });
 
 test('oversized images fall back to the CPU', () => {

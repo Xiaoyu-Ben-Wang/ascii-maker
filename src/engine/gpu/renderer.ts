@@ -1,5 +1,6 @@
 import { dither } from '../dither.ts';
-import { BLOOM, bloomBand, bloomFactor, grainSeed, scanlineSpacing } from '../effects.ts';
+import { BLOOM, bloomBand, bloomFactor, grainSeed, grainSize, scanlineSpacing } from '../effects.ts';
+import { GRAIN, grainClumpScale, grainWeights } from '../grain.ts';
 import { blurCells, cellGrid, glyphPlan, type CellGrid, type GlyphPlan } from '../glyphs.ts';
 import type { Params } from '../params.ts';
 import { createF, hexToRgb, type FImage, type RGBAImage } from '../pixels.ts';
@@ -394,7 +395,9 @@ export class GpuRenderer {
       uImg: out, uComb: comb ?? out, uBloom: !!comb, uSize: [w, h], uCombSize: comb ? [comb.w, comb.h] : [w, h],
       uChrom: p.chromatic * s, uScan: p.scanlines, uScanSp: scanlineSpacing(p, s),
       uVig: p.vignette, uVigSize: p.vignetteSize, uVigX: p.vignetteX, uVigY: p.vignetteY,
-      uGrain: p.grain, uSeed: grainSeed(p, opts.frame ?? 0), uFlip: toCanvas,
+      uGrain: p.grain * GRAIN.gain, uGrainSz: grainSize(p, s), uGrainRough: p.grainRoughness,
+      uGrainW: grainWeights(p.grainRoughness), uGrainClump: grainClumpScale(p.grainRoughness),
+      uSeed: grainSeed(p, opts.frame ?? 0), uFlip: toCanvas,
     };
     let fin: Tex | null = null;
     if (toCanvas) {

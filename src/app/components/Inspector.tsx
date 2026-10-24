@@ -55,7 +55,11 @@ const opts = <T extends string>(values: readonly T[], hints: Partial<Record<T, s
 const EFFECTS: Effect[] = [
   { label: 'Scanlines', key: 'scanlines', on: 0.4, fields: [{ key: 'scanlines', label: 'Strength' }, { key: 'scanlineSpacing', label: 'Line spacing' }] },
   { label: 'Color fringe', hint: 'Chromatic aberration: splits red and blue toward the edges.', key: 'chromatic', on: 1.5, fields: [{ key: 'chromatic', label: 'Strength' }] },
-  { label: 'Grain', key: 'grain', on: 0.05, fields: [{ key: 'grain', label: 'Strength' }] },
+  {
+    label: 'Grain', hint: 'Film grain, strongest in the midtones.', key: 'grain', on: 0.05, fields: [
+      { key: 'grain', label: 'Strength' }, { key: 'grainSize', label: 'Size' }, { key: 'grainRoughness', label: 'Roughness', hint: 'Higher makes the grain clumpier and less even.' },
+    ],
+  },
   { label: 'Final blur', hint: 'Blurs the finished image, glyphs and all.', key: 'blur', on: 1.5, fields: [{ key: 'blur', label: 'Strength' }] },
 ];
 

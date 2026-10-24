@@ -333,3 +333,42 @@ test('cli --mask clears glyphs under black and leaves transparent areas alone', 
   assert.equal(masked.length, plain.length, 'right half untouched');
   assert.ok(/^ {8,}\S/.test(masked), `left half cleared: ${JSON.stringify(masked)}`);
 });
+
+test('film grain is strongest in the midtones, grows with size and clumps with roughness', () => {
+  const w = 300, h = 120;
+  const ramp = { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+  for (let i = 0; i < w * h; i++) ramp.data.fill(Math.round(((i % w) / (w - 1)) * 255), i * 4, i * 4 + 3), (ramp.data[i * 4 + 3] = 255);
+  const base = { style: 'photo', unitWidth: 0, bgBlur: 0, bgOpacity: 1, bloom: 0, vignette: 0, grain: 0.2 } as const;
+  const noise = (o: object) => {
+    const g = render(ramp, resolveParams(base, o), { createCanvas: factory }).data;
+    const plain = render(ramp, resolveParams(base, { grain: 0 }), { createCanvas: factory }).data;
+    return Float64Array.from({ length: w * h }, (_, i) => g[i * 4] - plain[i * 4]);
+  };
+  const rms = (n: Float64Array, x0: number, x1: number, y0 = 0, y1 = h) => {
+    let s = 0, c = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { s += n[y * w + x] ** 2; c++; }
+    return Math.sqrt(s / c);
+  };
+  // Neighbor correlation: near 0 for per-pixel noise, higher for larger grain.
+  const corr = (n: Float64Array) => {
+    let a = 0, b = 0;
+    for (let y = 0; y < h; y++) for (let x = 100; x < 199; x++) { a += n[y * w + x] * n[y * w + x + 1]; b += n[y * w + x] ** 2; }
+    return a / b;
+  };
+
+  const n = noise({});
+  const mid = rms(n, 120, 180);
+  assert.ok(mid > 1.5 * rms(n, 0, 15) && mid > 1.5 * rms(n, 285, 300), 'grain fades in shadows and highlights');
+  // Midtone strength matches the old uniform grain (std = strength / sqrt 12), so presets keep their look.
+  assert.ok(Math.abs(mid / 255 - 0.2 / Math.sqrt(12)) < 0.012, `midtone grain ${(mid / 255).toFixed(3)}`);
+  assert.ok(corr(noise({ grainSize: 3 })) > corr(n) + 0.2, 'larger grain is smoother between neighbors');
+
+  // Roughness varies grain strength from patch to patch.
+  const spread = (o: object) => {
+    const m = noise(o), patches: number[] = [];
+    for (let y = 0; y + 10 <= h; y += 10) for (let x = 100; x + 10 <= 200; x += 10) patches.push(rms(m, x, x + 10, y, y + 10));
+    const mean = patches.reduce((a, b) => a + b, 0) / patches.length;
+    return Math.sqrt(patches.reduce((a, b) => a + (b - mean) ** 2, 0) / patches.length) / mean;
+  };
+  assert.ok(spread({ grainRoughness: 1, grainSize: 2 }) > 1.5 * spread({ grainRoughness: 0, grainSize: 2 }), 'rough grain is uneven');
+});
