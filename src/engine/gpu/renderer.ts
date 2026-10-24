@@ -2,7 +2,7 @@ import { dither } from '../dither.ts';
 import { BLOOM, bloomBand, bloomFactor, grainSeed, grainSize, scanlineSpacing } from '../effects.ts';
 import { GRAIN, grainClumpScale, grainWeights } from '../grain.ts';
 import { blurCells, cellGrid, glyphPlan, type CellGrid, type GlyphPlan } from '../glyphs.ts';
-import type { Params } from '../params.ts';
+import { ditherBackdrop, usesDither, type Params } from '../params.ts';
 import { createF, hexToRgb, type FImage, type RGBAImage } from '../pixels.ts';
 import { ditherGrid, hasHalo, minStroke, unitScale, type RenderOptions, type RenderResult } from '../render.ts';
 import { HEAD, SHADERS, VERTEX, type ShaderName } from './shaders.ts';
@@ -252,6 +252,21 @@ export class GpuRenderer {
     return out;
   }
 
+  /** The dither step at full size: downsample to the dither grid, dither on the CPU, scale back up. */
+  private dither(adj: Tex, p: Params, s: number): Tex {
+    const { w, h } = adj;
+    const { px, gw, gh } = ditherGrid(w, h, p, s);
+    const pre = px > 1.5 ? this.blur(adj, px * 0.45, 1, NONE, 'f32') : adj;
+    const smallTex = this.pass('resize', gw, gh, 'f32', { uSrc: pre, uSize: [w, h], uDst: [gw, gh], uMixK: 1, uMixColor: NONE });
+    if (pre !== adj) this.release(pre);
+    const d = dither(this.readF(smallTex), p.ditherAlgo, p.palette, p.ditherLevels, p.ditherSpread, p.seed);
+    this.release(smallTex);
+    const dTex = this.uploadF(d);
+    const out = this.pass('nearest', w, h, 'f16', { uSrc: dTex, uSize: [gw, gh], uDst: [w, h] });
+    this.release(dTex);
+    return out;
+  }
+
   private background(adj: Tex, p: Params, bgBlur: number, s: number): Tex {
     return this.blur(adj, bgBlur * s, p.bgOpacity, hexToRgb(p.bgColor));
   }
@@ -323,7 +338,7 @@ export class GpuRenderer {
     const adjU = { uBright: p.brightness, uContrast: p.contrast, uSat: p.saturation, uInvG: 1 / p.gamma, uInvert: p.invert };
     const srcTex = this.source(src, opts.sourceKey);
     // Error diffusion amplifies tiny input differences, so the dither path keeps full float precision.
-    const adj = this.pass('adjust', w, h, p.style === 'dither' ? 'f32' : 'f16', { uSrc: srcTex, ...adjU });
+    const adj = this.pass('adjust', w, h, usesDither(p) ? 'f32' : 'f16', { uSrc: srcTex, ...adjU });
 
     let out: Tex;
     let glowSrc: Tex | null = null;
@@ -331,15 +346,7 @@ export class GpuRenderer {
     if (p.style === 'photo') {
       out = this.background(adj, p, p.bgBlur, s);
     } else if (p.style === 'dither') {
-      const { px, gw, gh } = ditherGrid(w, h, p, s);
-      const pre = px > 1.5 ? this.blur(adj, px * 0.45, 1, NONE, 'f32') : adj;
-      const smallTex = this.pass('resize', gw, gh, 'f32', { uSrc: pre, uSize: [w, h], uDst: [gw, gh], uMixK: 1, uMixColor: NONE });
-      if (pre !== adj) this.release(pre);
-      const d = dither(this.readF(smallTex), p.ditherAlgo, p.palette, p.ditherLevels, p.ditherSpread, p.seed);
-      this.release(smallTex);
-      const dTex = this.uploadF(d);
-      out = this.pass('nearest', w, h, 'f16', { uSrc: dTex, uSize: [gw, gh], uDst: [w, h] });
-      this.release(dTex);
+      out = this.dither(adj, p, s);
     } else {
       const grid = cellGrid(w, h, p, s);
       const { cw, ch, cols, rows } = grid;
@@ -362,13 +369,18 @@ export class GpuRenderer {
       let glyph = this.glyphs(layer, grid, w, h);
       if (p.glyphBlur > 0) { const b = this.blur(glyph, p.glyphBlur * s); this.release(glyph); glyph = b; }
 
-      const bg = this.background(adj, p, p.bgBlur, s);
+      // A dither backdrop skips Photo blur, which would smear it (as on the CPU).
+      const dith = ditherBackdrop(p);
+      const base = dith ? this.dither(adj, p, s) : adj;
+      const bgBlur = dith ? 0 : p.bgBlur;
+      const bg = this.background(base, p, bgBlur, s);
       const halo = hasHalo(p);
       let spread: Tex | null = null, soft: Tex | null = null;
       if (halo) {
         spread = this.uploadF({ ...createF(cols, rows), r: blurCells(layer.cover, cols, rows, p.haloRadius) });
-        if (p.haloBlur > 0) soft = this.background(adj, p, p.bgBlur + p.haloBlur, s);
+        if (p.haloBlur > 0) soft = this.background(base, p, bgBlur + p.haloBlur, s);
       }
+      if (base !== adj) this.release(base);
       out = this.pass('compose', w, h, 'f16', {
         uBg: bg, uSoft: soft ?? bg, uSpread: spread ?? bg, uGlyph: glyph, uHalo: halo, uSoftOn: !!soft, uHaloTone: p.haloTone,
         uBgColor: hexToRgb(p.bgColor), uSpreadSize: [cols, rows], uGridPx: [Math.round(cols * cw), Math.round(rows * ch)],

@@ -23,6 +23,10 @@ export type Coverage = (typeof COVERAGES)[number];
  * What a cell's brightness is compared against the threshold as: its luminance ("absolute"), its rank among the
  * image's cells ("relative"), or how much it stands out from its surroundings ("local").
  */
+/** What glyph styles draw over: the photo, or the photo dithered with the dither settings. */
+export const BACKDROPS = ['photo', 'dither'] as const;
+export type Backdrop = (typeof BACKDROPS)[number];
+
 export const HIGHLIGHT_MODES = ['absolute', 'relative', 'local'] as const;
 export type HighlightMode = (typeof HIGHLIGHT_MODES)[number];
 
@@ -72,7 +76,8 @@ export interface Params {
   glyphBoost: number; // brightness multiplier for glyph color
   glyphOpacity: number; // 0..1
 
-  bgBlur: number; // px; 0 = sharp source. Glyph styles and "photo".
+  backdrop: Backdrop; // glyph styles only
+  bgBlur: number; // px; 0 = sharp source. Glyph styles and "photo"; not a dither backdrop.
   glyphBlur: number; // px softening of the glyph layer only
   bgOpacity: number; // 0..1 opacity of the background image over bgColor
   bgColor: string;
@@ -130,6 +135,7 @@ export const DEFAULTS: Params = {
   glyphBoost: 1.35,
   glyphOpacity: 1,
 
+  backdrop: 'photo',
   bgBlur: 6,
   glyphBlur: 0,
   bgOpacity: 0.85,
@@ -223,6 +229,13 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
       haloTone: -0.1, haloBlur: 0, haloRadius: 0.6, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.3, vignette: 0, grain: 0,
     },
   },
+  'dither-ascii': {
+    description: 'Glowing ASCII on the highlights over a Floyd–Steinberg dither of the photo',
+    params: {
+      style: 'characters', backdrop: 'dither', ditherAlgo: 'floyd-steinberg', palette: 'auto', ditherLevels: 5, pixelSize: 3,
+      bgOpacity: 1, cellSize: 12, threshold: 0.32, haloTone: -0.5, haloRadius: 1, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.4, vignette: 0.2,
+    },
+  },
   matrix: {
     description: 'Green mono ASCII on black with scanlines',
     params: {
@@ -231,6 +244,11 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
     },
   },
 };
+
+/** Glyph styles over a dither backdrop. */
+export const ditherBackdrop = (p: Params) => p.backdrop === 'dither' && p.style !== 'dither' && p.style !== 'photo';
+/** Whether the render runs the dither step, as the style or as the backdrop. */
+export const usesDither = (p: Params) => p.style === 'dither' || ditherBackdrop(p);
 
 export function resolveParams(...layers: (Partial<Params> | undefined)[]): Params {
   return Object.assign({}, DEFAULTS, ...layers.filter(Boolean).map(upgrade));

@@ -2,7 +2,7 @@ import { scopedMemo, type Memo, type RenderCache } from './cache.ts';
 import { autoPalette, dither } from './dither.ts';
 import { HALO_GAIN, postProcess } from './effects.ts';
 import { blurCells, cellAverages, cellGrid, glyphPlan, stampGlyphs, type CanvasFactory, type HighlightMask } from './glyphs.ts';
-import type { Params } from './params.ts';
+import { ditherBackdrop, usesDither, type Params } from './params.ts';
 import { adjust, blur, clamp01, cloneF, createF, fromRGBA, hexToRgb, resizeF, toRGBA, type FImage, type RGBAImage } from './pixels.ts';
 
 export interface RenderOptions {
@@ -58,10 +58,17 @@ export function render(src: RGBAImage, p: Params, opts: RenderOptions): RenderRe
   return { width: out.width, height: out.height, data: toRGBA(out), text };
 }
 
-/** The photo, blurred and faded toward bgColor. Returns a fresh copy, safe to modify. */
+/**
+ * The photo (or its dither, for a dither backdrop), blurred and faded toward bgColor. Returns a fresh copy, safe to
+ * modify. Photo blur would smear a dither, so there only the extra blur past bgBlur applies.
+ */
 function background(img: FImage, p: Params, s: number, memo: Memo, bgBlur = p.bgBlur): FImage {
-  return cloneF(memo(`bg:${bgBlur * s},${p.bgColor},${p.bgOpacity}`, () => {
-    const b = bgBlur > 0 ? blur(img, bgBlur * s) : cloneF(img);
+  const dith = ditherBackdrop(p);
+  const radius = dith ? bgBlur - p.bgBlur : bgBlur;
+  const src = dith ? `dither:${ditherKey(img, p, s)}` : 'photo';
+  return cloneF(memo(`bg:${src},${radius * s},${p.bgColor},${p.bgOpacity}`, () => {
+    const base = dith ? renderDither(img, p, s, memo) : img;
+    const b = radius > 0 ? blur(base, radius * s) : cloneF(base);
     const [cr, cg, cb] = hexToRgb(p.bgColor);
     const k = p.bgOpacity;
     for (let i = 0; i < b.r.length; i++) {
@@ -78,6 +85,11 @@ export function ditherGrid(w: number, h: number, p: Params, s: number) {
   const px = Math.max(1, p.pixelSize * s);
   return { px, gw: Math.max(1, Math.round(w / px)), gh: Math.max(1, Math.round(h / px)) };
 }
+
+const ditherKey = (img: FImage, p: Params, s: number) => {
+  const { gw, gh } = ditherGrid(img.width, img.height, p, s);
+  return `${p.ditherAlgo},${p.palette},${p.ditherLevels},${p.ditherSpread},${p.seed},${gw}x${gh}`;
+};
 
 function renderDither(img: FImage, p: Params, s: number, memo: Memo): FImage {
   const { px, gw, gh } = ditherGrid(img.width, img.height, p, s);
@@ -149,7 +161,7 @@ function halo(bg: FImage, img: FImage, cover: Float32Array, { cols, rows, cw, ch
  * same colors instead of flickering between per-frame palettes.
  */
 export function lockPalette(src: RGBAImage, p: Params): Params {
-  if (p.style !== 'dither' || p.palette !== 'auto') return p;
+  if (!usesDither(p) || p.palette !== 'auto') return p;
   const img = fromRGBA(src);
   adjust(img, p);
   const w = Math.min(256, img.width);

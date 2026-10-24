@@ -372,3 +372,24 @@ test('film grain is strongest in the midtones, grows with size and clumps with r
   };
   assert.ok(spread({ grainRoughness: 1, grainSize: 2 }) > 1.5 * spread({ grainRoughness: 0, grainSize: 2 }), 'rough grain is uneven');
 });
+
+test('a dither backdrop puts glyphs over the dithered photo', () => {
+  const img = gradient(240, 160);
+  const base = {
+    style: 'characters', unitWidth: 0, cellSize: 10, threshold: 0.9, palette: 'gameboy', ditherAlgo: 'bayer4', pixelSize: 2,
+    bgOpacity: 1, bgBlur: 4, haloTone: 0, haloBlur: 0, bloom: 0, vignette: 0, grain: 0,
+  } as const;
+  const gameboy = PALETTES.gameboy.map(hexToRgb).map((c) => c.map((v) => Math.round(v * 255)));
+  const inPalette = (d: Uint8ClampedArray) => {
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (gameboy.some((c) => Math.abs(c[0] - d[i]) + Math.abs(c[1] - d[i + 1]) + Math.abs(c[2] - d[i + 2]) <= 3)) n++;
+    return n / (d.length / 4);
+  };
+  const dith = render(img, resolveParams(base, { backdrop: 'dither' }), { createCanvas: factory });
+  const photo = render(img, resolveParams(base, { backdrop: 'photo' }), { createCanvas: factory });
+  assert.ok(inPalette(dith.data) > 0.8, `backdrop in palette ${inPalette(dith.data)}`);
+  assert.ok(inPalette(photo.data) < 0.05, 'a photo backdrop is not dithered');
+  assert.equal(dith.text, photo.text, 'glyphs are placed the same either way');
+  const plain = render(img, resolveParams(base, { backdrop: 'dither', threshold: 1.01 }), { createCanvas: factory });
+  assert.ok(plain.data.some((v, i) => v !== dith.data[i]), 'glyphs are drawn on top');
+});

@@ -1,7 +1,7 @@
 import { Crosshair } from 'lucide-react';
 import { memo, useRef, useState } from 'react';
 import {
-  CHARSETS, COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, RANGES, STYLES, type Params, type Style,
+  BACKDROPS, CHARSETS, COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, RANGES, STYLES, type Params, type Style,
 } from '../../engine/index.ts';
 import { Button, ColorField, Label, RangeField, Row, Section, Select, SliderField, Switch, TextField, Tip, cx } from './ui.tsx';
 
@@ -52,6 +52,14 @@ const SHAPES: Style[] = ['cross', 'diagonal', 'dots', 'lines'];
 const opts = <T extends string>(values: readonly T[], hints: Partial<Record<T, string>> = {}): Option[] =>
   values.map((v) => ({ value: v, label: v, hint: hints[v] }));
 
+const ditherFields = (styles: readonly Style[], when?: (p: Params) => boolean): Field[] => [
+  { key: 'ditherAlgo', label: 'Algorithm', kind: 'select', options: opts(DITHER_ALGOS), styles, when },
+  { key: 'palette', label: 'Palette', kind: 'select', options: opts(PALETTE_NAMES, { auto: 'Colors picked from the image', source: 'Image colors, reduced per channel' }), styles, when },
+  { key: 'ditherLevels', label: 'Colors', hint: 'Palette size for auto, levels per channel for source.', styles, when },
+  { key: 'pixelSize', label: 'Pixel size', styles, when },
+  { key: 'ditherSpread', label: 'Strength', more: true, hint: 'How far errors spread to neighbors (diffusion algorithms).', styles, when },
+];
+
 const EFFECTS: Effect[] = [
   { label: 'Scanlines', key: 'scanlines', on: 0.4, fields: [{ key: 'scanlines', label: 'Strength' }, { key: 'scanlineSpacing', label: 'Line spacing' }] },
   { label: 'Color fringe', hint: 'Chromatic aberration: splits red and blue toward the edges.', key: 'chromatic', on: 1.5, fields: [{ key: 'chromatic', label: 'Strength' }] },
@@ -100,11 +108,7 @@ const GROUPS: Group[] = [
       },
       { key: 'localRadius', label: 'Surroundings', styles: GLYPH, more: true, hint: 'How large an area each cell is compared against.', when: (p) => p.coverage !== 'full' && p.highlightMode === 'local' },
       { key: 'thresholdSoftness', label: 'Fade', styles: GLYPH, more: true, hint: 'How gradually glyphs appear above the lower end of the threshold (and fade out above the upper end).', when: (p) => p.coverage !== 'full' },
-      { key: 'ditherAlgo', label: 'Algorithm', kind: 'select', options: opts(DITHER_ALGOS), styles: ['dither'] },
-      { key: 'palette', label: 'Palette', kind: 'select', options: opts(PALETTE_NAMES, { auto: 'Colors picked from the image', source: 'Image colors, reduced per channel' }), styles: ['dither'] },
-      { key: 'ditherLevels', label: 'Colors', hint: 'Palette size for auto, levels per channel for source.', styles: ['dither'] },
-      { key: 'pixelSize', label: 'Pixel size', styles: ['dither'] },
-      { key: 'ditherSpread', label: 'Strength', more: true, hint: 'How far errors spread to neighbors (diffusion algorithms).', styles: ['dither'] },
+      ...ditherFields(['dither']),
     ],
   },
   {
@@ -120,8 +124,13 @@ const GROUPS: Group[] = [
   {
     title: 'Background', styles: [...GLYPH, 'photo'], fields: [
       { key: 'bgColor', label: 'Background color', hint: 'What the photo fades into as opacity drops. At opacity 0 it is the whole background.', kind: 'color', when: (p) => p.style === 'photo' || p.coverage !== 'full' },
+      {
+        key: 'backdrop', label: 'Backdrop', kind: 'select', styles: GLYPH,
+        options: opts(BACKDROPS, { photo: 'The photo behind the glyphs', dither: 'The photo dithered, with glyphs on top' }),
+      },
+      ...ditherFields(GLYPH, (p) => p.backdrop === 'dither'),
       { key: 'bgOpacity', label: 'Photo opacity', hint: 'How much of the photo shows behind the glyphs. 0 leaves only the background color.' },
-      { key: 'bgBlur', label: 'Photo blur', hint: 'Blurs the photo. 0 keeps it sharp.' },
+      { key: 'bgBlur', label: 'Photo blur', hint: 'Blurs the photo. 0 keeps it sharp.', when: (p) => p.style === 'photo' || p.backdrop !== 'dither' },
     ],
   },
   {

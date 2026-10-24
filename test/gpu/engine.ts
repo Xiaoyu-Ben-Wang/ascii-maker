@@ -84,7 +84,7 @@ const glyphStyles = STYLES.filter((s) => s !== 'dither' && s !== 'photo');
 for (const name of Object.keys(PRESETS)) {
   const p = PRESETS[name].params;
   // Error diffusion amplifies sub-level differences into different dither patterns, so it's checked loosely.
-  const diffusion = p.style === 'dither' && !String(p.ditherAlgo).startsWith('bayer');
+  const diffusion = (p.style === 'dither' || p.backdrop === 'dither') && !String(p.ditherAlgo).startsWith('bayer');
   matchesCpu(`preset ${name}`, base, p, diffusion ? { tol: 0.2, anyMax: true } : {});
 }
 for (const style of glyphStyles)
@@ -235,6 +235,9 @@ test('repeated renders are deterministic and do not grow GPU memory', () => {
   if (count() !== before) throw new Error(`pooled textures grew from ${before} to ${count()}`);
   return `${before} pooled textures, steady`;
 });
+
+for (const style of glyphStyles)
+  matchesCpu(`${style} over a bayer dither backdrop`, base, { style, backdrop: 'dither', ditherAlgo: 'bayer4', palette: 'gameboy', haloTone: -0.4, haloBlur: 6 });
 
 for (const [label, o] of [['fine', { grainSize: 0.5, grainRoughness: 0 }], ['default', {}], ['coarse, rough', { grainSize: 3, grainRoughness: 1 }]] as const)
   matchesCpu(`grain, ${label}`, base, { style: 'photo', bgBlur: 0, bgOpacity: 1, unitWidth: 0, grain: 0.3, ...o });

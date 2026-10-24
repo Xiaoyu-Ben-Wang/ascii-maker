@@ -2,7 +2,7 @@
 import * as mb from 'mediabunny';
 import { VIDEO_FORMATS, inputFormats } from '../app/lib/video.ts';
 import { gpuOrCpu } from '../engine/gpu/index.ts';
-import { lockPalette, type Params } from '../engine/index.ts';
+import { lockPalette, usesDither, type Params } from '../engine/index.ts';
 import type { VideoJob, VideoMessage } from './protocol.ts';
 
 const post = (msg: VideoMessage) => (self as unknown as Worker).postMessage(msg);
@@ -36,7 +36,7 @@ self.onmessage = async (e: MessageEvent<VideoJob>) => {
         width: w, height: h, fit: 'fill', codec: format.codec, quality: new mb.Quality(job.quality), forceTranscode: true,
         process: (sample) => {
           sample.draw(src, 0, 0, w, h);
-          locked ??= job.params.style === 'dither' && job.params.palette === 'auto' ? lockPalette(frameIn.read(), job.params) : job.params;
+          locked ??= usesDither(job.params) && job.params.palette === 'auto' ? lockPalette(frameIn.read(), job.params) : job.params;
           const { r } = renderer.bitmap(frameIn, locked, { createCanvas, mask: job.mask, frame: frame++ }, job.gpu);
           outCtx.drawImage(r.bitmap, 0, 0, w, h);
           r.bitmap.close();

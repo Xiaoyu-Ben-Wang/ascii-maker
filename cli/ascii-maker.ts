@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-  CHARSETS, COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, PRESETS, RANGES, SIZE_NAMES, STYLES, frameFor,
+  BACKDROPS, CHARSETS, COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, PRESETS, RANGES, SIZE_NAMES, STYLES, frameFor,
   paramFlag as kebab, render, resolveParams, type HighlightMask, type Params, type SizeName,
 } from '../src/engine/index.ts';
 import { hexToRgb, luma } from '../src/engine/pixels.ts';
@@ -125,6 +125,7 @@ function validate(p: Params) {
   oneOf('diagonal mode', p.diagonalMode, DIAGONAL_MODES);
   oneOf('color mode', p.colorMode, COLOR_MODES);
   oneOf('coverage', p.coverage, COVERAGES);
+  oneOf('backdrop', p.backdrop, BACKDROPS);
   oneOf('highlight mode', p.highlightMode, HIGHLIGHT_MODES);
   if (!PALETTE_NAMES.includes(p.palette)) {
     const hexes = p.palette.split(',').map((h) => h.trim()).filter(Boolean);

@@ -87,6 +87,7 @@ Settings and saved presets are kept in the browser. Undo (`Ctrl+Z`) covers every
 | `ascii-surround` | ASCII everywhere except the brightest subject, which stays a photo |
 | `matrix` | Green ASCII on black with scanlines |
 | `dither`, `dither-scanline`, `gameboy-dither` | Floyd–Steinberg or Bayer dither, with or without CRT scanlines |
+| `dither-ascii` | ASCII on the highlights over a dithered photo |
 | `scanlines` | The photo with CRT scanlines |
 
 Character sets include `standard` (` .:-=+xX0S8#@`), `classic`, a 70-step `detailed` ramp, `blocks` (` ░▒▓█`), `braille` and `binary`, or you can type your own from dark to bright. Dithering supports error diffusion (Floyd–Steinberg, Atkinson, Jarvis, Stucki, Burkes, three Sierra variants), Bayer matrices, a halftone screen and line patterns. Palettes can be fixed (`gameboy`, `c64`, `pico8`, `cga` and others), picked from the image, or your own list of hex colors.
@@ -131,10 +132,10 @@ The pipeline is in [`src/engine/`](src/engine). Everything runs in floating poin
 2. Split the image into cells (0.6 as wide as tall for characters, square otherwise) and average each cell's color.
 3. Turn each cell's luminance into a level between the threshold's two ends, with a smoothstep fade so glyphs grow in rather than switch on. A painted mask raises or lowers it per cell.
 4. Pick a glyph per cell from its level: a character from the set, a cross's arm length, a dot's radius. Each distinct glyph is drawn once into an alpha mask and then stamped into every cell that uses it, which is much faster than drawing each cell through a canvas. For `diagonal`, a Sobel filter sets the stroke direction.
-5. Draw the glyphs over the photo, which can be blurred, faded toward a background color, or darkened and blurred only around the glyphs.
+5. Draw the glyphs over the photo, or over its dither (the backdrop setting). The photo can be blurred, faded toward a background color, or darkened and blurred only around the glyphs.
 6. Add bloom (a soft bright-pass, blurred at two radii), color fringe, scanlines, vignette and grain.
 
-Dither replaces steps 2 to 5: the image is shrunk to the pixel size, reduced to the palette, and scaled back up with hard edges.
+The dither style replaces steps 2 to 5: the image is shrunk to the pixel size, reduced to the palette, and scaled back up with hard edges.
 
 Sizes are measured on a 1920 px-wide image and scale with the output, so a 4K export looks like the preview, only sharper.
 
