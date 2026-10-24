@@ -1,7 +1,7 @@
 import { scopedMemo, type Memo, type RenderCache } from './cache.ts';
 import { autoPalette, dither } from './dither.ts';
 import { HALO_GAIN, postProcess } from './effects.ts';
-import { blurCells, cellAverages, cellGrid, glyphPlan, stampGlyphs, type CanvasFactory, type HighlightMask } from './glyphs.ts';
+import { blurCells, cellAverages, cellGrid, glyphPlan, sampleGrid, stampGlyphs, type CanvasFactory, type HighlightMask } from './glyphs.ts';
 import { ditherBackdrop, usesDither, type Params } from './params.ts';
 import { adjust, blur, clamp01, cloneF, createF, fromRGBA, hexToRgb, resizeF, toRGBA, type FImage, type RGBAImage } from './pixels.ts';
 
@@ -111,8 +111,9 @@ function renderDither(img: FImage, p: Params, s: number, memo: Memo): FImage {
 function renderGlyphs(img: FImage, p: Params, s: number, opts: RenderOptions, memo: Memo) {
   const { width: w, height: h } = img;
   const grid = cellGrid(w, h, p, s);
-  const { cw, ch, cols, rows } = grid;
-  const cells = memo(`cells:${cols}x${rows},${cw},${ch}`, () => cellAverages(img, grid));
+  const { cols, rows } = grid;
+  const sg = sampleGrid(grid, p);
+  const cells = memo(`cells:${sg.cols}x${sg.rows},${sg.cw},${sg.ch}`, () => cellAverages(img, sg));
   const plan = glyphPlan(cells, grid, p, s, opts.createCanvas, minStroke(img.width, opts.targetWidth), w, h, opts.mask);
   let { glow, alpha } = stampGlyphs(plan, w, h);
 

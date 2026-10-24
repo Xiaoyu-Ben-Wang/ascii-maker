@@ -46,7 +46,7 @@ interface Group {
   effects?: Effect[];
 }
 
-const GLYPH: Style[] = ['characters', 'cross', 'diagonal', 'dots', 'lines'];
+const GLYPH: Style[] = ['characters', 'braille', 'blocks', 'cross', 'diagonal', 'dots', 'lines'];
 const SHAPES: Style[] = ['cross', 'diagonal', 'dots', 'lines'];
 
 const opts = <T extends string>(values: readonly T[], hints: Partial<Record<T, string>> = {}): Option[] =>
@@ -174,7 +174,7 @@ const GROUPS: Group[] = [
 ];
 
 const STYLE_GLYPH: Record<Style, string> = {
-  characters: '@#a', cross: '+×+', diagonal: '/\\/', dots: '•●•', lines: '│|│', dither: '▚▞▚', photo: '▢▢▢',
+  characters: '@#a', braille: '⣿⠷⠃', blocks: '█▓░', cross: '+×+', diagonal: '/\\/', dots: '•●•', lines: '│|│', dither: '▚▞▚', photo: '▢▢▢',
 };
 
 type Set = (patch: Partial<Params>) => void;

@@ -1,5 +1,5 @@
 /** "photo" draws only the background image (its blur and opacity apply), plus the adjustments and effects. */
-export const STYLES = ['characters', 'cross', 'diagonal', 'dots', 'lines', 'dither', 'photo'] as const;
+export const STYLES = ['characters', 'braille', 'blocks', 'cross', 'diagonal', 'dots', 'lines', 'dither', 'photo'] as const;
 export type Style = (typeof STYLES)[number];
 
 export const DITHER_ALGOS = [
@@ -196,6 +196,14 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
     params: {
       style: 'characters', coverage: 'full', cellSize: 10, bgOpacity: 0, glyphTint: 0, glyphBoost: 1.15, bloom: 0.25, vignette: 0.15, grain: 0,
     },
+  },
+  braille: {
+    description: 'Braille characters, each a 2×4 grid of dots set by the detail under it',
+    params: { style: 'braille', coverage: 'full', cellSize: 12, bgOpacity: 0, glyphTint: 0.1, glyphBoost: 1.3, bloom: 0.3, vignette: 0.15, grain: 0 },
+  },
+  'shade-blocks': {
+    description: 'Shaded blocks ░▒▓█ tiled edge to edge, like pixel art',
+    params: { style: 'blocks', coverage: 'full', cellSize: 10, bgOpacity: 0, glyphTint: 0, glyphBoost: 1.15, bloom: 0.2, vignette: 0.15, grain: 0 },
   },
   'full-cross': {
     description: 'Whole image rebuilt from "+" and "×" marks sized by brightness',

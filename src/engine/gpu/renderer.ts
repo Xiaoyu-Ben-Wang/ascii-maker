@@ -1,7 +1,7 @@
 import { dither } from '../dither.ts';
 import { BLOOM, bloomBand, bloomFactor, grainSeed, grainSize, scanlineSpacing } from '../effects.ts';
 import { GRAIN, grainClumpScale, grainWeights } from '../grain.ts';
-import { blurCells, cellGrid, glyphPlan, type CellGrid, type GlyphPlan } from '../glyphs.ts';
+import { blurCells, cellGrid, glyphPlan, sampleGrid, type CellGrid, type GlyphPlan } from '../glyphs.ts';
 import { ditherBackdrop, usesDither, type Params } from '../params.ts';
 import { createF, hexToRgb, type FImage, type RGBAImage } from '../pixels.ts';
 import { ditherGrid, hasHalo, minStroke, unitScale, type RenderOptions, type RenderResult } from '../render.ts';
@@ -350,8 +350,9 @@ export class GpuRenderer {
     } else {
       const grid = cellGrid(w, h, p, s);
       const { cw, ch, cols, rows } = grid;
-      const starts = new Float32Array((Math.max(cols, rows) + 1) * 4);
-      for (const [n, size, step, off] of [[cols, w, cw, 0], [rows, h, ch, 1]]) {
+      const sg = sampleGrid(grid, p);
+      const starts = new Float32Array((Math.max(sg.cols, sg.rows) + 1) * 4);
+      for (const [n, size, step, off] of [[sg.cols, w, sg.cw, 0], [sg.rows, h, sg.ch, 1]]) {
         let c = 0;
         for (let x = 0; x < size; x++) {
           const cell = Math.min(n - 1, Math.floor(x / step));
@@ -360,7 +361,7 @@ export class GpuRenderer {
         while (c <= n) starts[c++ * 4 + off] = size;
       }
       const startsTex = this.upload(starts.length / 4, 1, 'f32', starts);
-      const cellsTex = this.pass('cells', cols, rows, 'f32', { uSrc: srcTex, uStarts: startsTex, ...adjU });
+      const cellsTex = this.pass('cells', sg.cols, sg.rows, 'f32', { uSrc: srcTex, uStarts: startsTex, ...adjU });
       this.release(startsTex);
       const cells = this.readF(cellsTex);
       this.release(cellsTex);

@@ -81,6 +81,8 @@ Creations, settings and saved presets are kept in the browser. Undo (`Ctrl+Z`) c
 | Style | Draws |
 | --- | --- |
 | `characters` | Characters from a set ordered dark to bright |
+| `braille` | Braille characters; each of a cell's 2×4 dots follows the detail under it |
+| `blocks` | Shaded blocks `░▒▓█` tiled edge to edge |
 | `cross` | `+` on bright cells and a small `×` on faint ones, sized by brightness |
 | `diagonal` | `/` and `\` strokes that follow edges, or hatch in one direction |
 | `dots` | Halftone circles that grow with brightness |
@@ -94,6 +96,7 @@ Creations, settings and saved presets are kept in the browser. Undo (`Ctrl+Z`) c
 | `sharp-ascii` | ASCII over the sharp photo, slightly darkened around the glyphs |
 | `cross`, `diagonal`, `dots` | The shape styles over the photo |
 | `full-ascii`, `full-cross` | Every cell becomes a glyph, on black |
+| `braille`, `shade-blocks` | The whole image in braille dots or shaded blocks, on black |
 | `ascii-surround` | ASCII everywhere except the brightest subject, which stays a photo |
 | `matrix` | Green ASCII on black with scanlines |
 | `dither`, `dither-scanline`, `gameboy-dither` | Floyd–Steinberg or Bayer dither, with or without CRT scanlines |

@@ -36,11 +36,38 @@ export interface HighlightMask {
 export interface CellGrid { cw: number; ch: number; cols: number; rows: number }
 
 export function cellGrid(w: number, h: number, p: Params, s: number): CellGrid {
-  const ch = Math.max(2, p.cellSize * s);
-  // Monospace glyphs are about 0.6 as wide as tall; other styles use square cells.
-  const cw = p.style === 'characters' ? Math.max(2, ch * 0.6) : ch;
+  // Blocks get whole-pixel cells so they tile without seams.
+  const ch = p.style === 'blocks' ? Math.max(4, Math.round(p.cellSize * s)) : Math.max(2, p.cellSize * s);
+  // Monospace glyphs are about 0.6 as wide as tall, braille 2×4 dots on a square pitch; other styles use square cells.
+  const cw = p.style === 'characters' ? Math.max(2, ch * 0.6) : p.style === 'braille' ? Math.max(2, ch * 0.5) : ch;
   return { cw, ch, cols: Math.ceil(w / cw), rows: Math.ceil(h / ch) };
 }
+
+/** The grid the source is averaged over: one sample per braille dot, else one per cell. */
+export function sampleGrid(grid: CellGrid, p: Params): CellGrid {
+  if (p.style !== 'braille') return grid;
+  return { cw: grid.cw / 2, ch: grid.ch / 4, cols: grid.cols * 2, rows: grid.rows * 4 };
+}
+
+/** Cell averages from braille dot samples (the eight dots of each cell). */
+function brailleCells(dots: FImage, cols: number, rows: number): FImage {
+  const out = createF(cols, rows);
+  const dw = cols * 2;
+  for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) {
+    const c = cy * cols + cx;
+    for (let j = 0; j < 4; j++) for (let k = 0; k < 2; k++) {
+      const d = (cy * 4 + j) * dw + cx * 2 + k;
+      out.r[c] += dots.r[d] / 8; out.g[c] += dots.g[d] / 8; out.b[c] += dots.b[d] / 8;
+    }
+  }
+  return out;
+}
+
+/** Braille dot bits by position in the cell (row-major, 2 wide × 4 tall), per Unicode's dot numbering. */
+const BRAILLE_BITS = [0x01, 0x08, 0x02, 0x10, 0x04, 0x20, 0x40, 0x80];
+/** Tie-break order for equally bright dots, spreading them like an ordered dither. */
+const BRAILLE_ORDER = [0, 4, 2, 6, 3, 7, 1, 5];
+const SHADES = ['░', '▒', '▓', '█'];
 
 export function cellAverages(img: FImage, { cols, rows, cw, ch }: CellGrid): FImage {
   const out = createF(cols, rows);
@@ -113,9 +140,11 @@ const level = (t: number) => Math.round(clamp01(t) * LEVELS) / LEVELS;
  * Glyphs are rasterized once into masks and stamped per cell, since drawing every cell through a canvas is far
  * slower and native canvases serialize text drawing across threads.
  */
-export function glyphPlan(cells: FImage, grid: CellGrid, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, w: number, h: number, highlightMask?: HighlightMask): GlyphPlan {
+export function glyphPlan(samples: FImage, grid: CellGrid, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, w: number, h: number, highlightMask?: HighlightMask): GlyphPlan {
   const { cw, ch, cols, rows } = grid;
   const n = cols * rows;
+  const braille = p.style === 'braille';
+  const cells = braille ? brailleCells(samples, cols, rows) : samples;
   const lum = new Float32Array(n);
   for (let i = 0; i < n; i++) lum[i] = luma(cells.r[i], cells.g[i], cells.b[i]);
   const bright = highlightLevels(lum, cols, rows, p, (p.localRadius * s) / ch);
@@ -209,6 +238,56 @@ export function glyphPlan(cells: FImage, grid: CellGrid, p: Params, s: number, c
           if (c !== ' ') stamp(mask(`c${c}`, (ctx, x, y) => ctx.fillText(c, x, y)), mx, my, r, g, b, a);
           break;
         }
+        case 'braille': {
+          // The cell's brightness sets how many dots light; its brightest dots get them.
+          const on = Math.round(t * 8);
+          const count = full ? on : Math.max(1, on);
+          let bits = 0;
+          if (count > 0) {
+            const dw = cols * 2;
+            const lums = BRAILLE_BITS.map((_, d) => {
+              const k = (cy * 4 + (d >> 1)) * dw + cx * 2 + (d & 1);
+              // Rounded so dots equal to the eye tie (and break ties the same way) on CPU and GPU.
+              return Math.round(luma(samples.r[k], samples.g[k], samples.b[k]) * 1024) + BRAILLE_ORDER[d] / 8;
+            });
+            const ranked = lums.map((_, d) => d).sort((x, y) => lums[y] - lums[x]);
+            for (let k = 0; k < count; k++) bits |= BRAILLE_BITS[ranked[k]];
+          }
+          line += bits ? String.fromCharCode(0x2800 + bits) : ' ';
+          if (!bits) break;
+          stamp(mask(`b${bits}`, (ctx, px, py) => {
+            const pitch = ch / 4, rad = pitch * 0.36;
+            ctx.beginPath();
+            BRAILLE_BITS.forEach((bit, d) => {
+              if (!(bits & bit)) return;
+              const dx = px + ((d & 1) - 0.5) * pitch, dy = py + ((d >> 1) - 1.5) * pitch;
+              ctx.moveTo(dx + rad, dy);
+              ctx.arc(dx, dy, rad, 0, Math.PI * 2);
+            });
+            ctx.fill();
+          }), mx, my, r, g, b, a);
+          break;
+        }
+        case 'blocks': {
+          // Full coverage keeps a blank step at the dark end, as the characters ramp does.
+          const steps = full ? SHADES.length + 1 : SHADES.length;
+          const idx = Math.min(steps - 1, Math.floor(t * steps)) - (full ? 1 : 0);
+          if (idx < 0) { line += ' '; break; }
+          line += SHADES[idx];
+          stamp(mask(`s${idx}`, (ctx, px, py) => {
+            // A 4×4 grid of squares: one in four lit, a checkerboard, three in four, or all.
+            const u = ch / 4, x0 = px - ch / 2, y0 = py - ch / 2;
+            ctx.beginPath();
+            for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) {
+              const lit = idx === 3 || (idx === 0 ? j % 2 === 0 && k % 2 === 0 : idx === 1 ? (j + k) % 2 === 0 : !(j % 2 === 1 && k % 2 === 1));
+              if (!lit) continue;
+              const x = x0 + k * u, y = y0 + j * u;
+              ctx.moveTo(x, y); ctx.lineTo(x + u, y); ctx.lineTo(x + u, y + u); ctx.lineTo(x, y + u);
+            }
+            ctx.fill();
+          }), mx, my, r, g, b, a);
+          break;
+        }
         case 'cross': {
           // Faint cells get a small ×, bright cells a bold +.
           const x = t < 0.3;
@@ -251,7 +330,7 @@ export function glyphPlan(cells: FImage, grid: CellGrid, p: Params, s: number, c
     textRows.push(line.replace(/\s+$/, ''));
   }
 
-  return { mw, mh, masks, maskKeys, slot, x0: X0, y0: Y0, color, cover, text: p.style === 'characters' ? textRows.join('\n') : undefined };
+  return { mw, mh, masks, maskKeys, slot, x0: X0, y0: Y0, color, cover, text: p.style === 'characters' || braille || p.style === 'blocks' ? textRows.join('\n') : undefined };
 }
 
 /** Whether a "/" (rather than "\") runs along the edge at cell (cx, cy); "/" where the edge is too faint to tell. */

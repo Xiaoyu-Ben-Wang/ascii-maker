@@ -12,7 +12,7 @@ import { VIDEO_EXTS, convertVideo } from './video.ts';
 
 const paramKeys = Object.keys(DEFAULTS) as (keyof Params)[];
 
-const HELP = `ascii-maker — algorithmic ASCII / cross / diagonal / dots / dither renderer for images and video
+const HELP = `ascii-maker — algorithmic ASCII / braille / blocks / cross / diagonal / dots / dither renderer for images and video
 
 Usage:
   node cli/ascii-maker.ts <input> -o <output.png|jpg|webp> [options]
@@ -33,7 +33,7 @@ Video (input .mp4 .mov .mkv .webm .avi .m4v .gif; needs ffmpeg on PATH or FFMPEG
       --crf <n>           Quality, lower is better (default 18)
       --threads <n>       Render threads (default: CPU cores - 1)
       --no-audio          Drop the audio track
-      --text <file>       Also write the plain ASCII grid (characters style)
+      --text <file>       Also write the plain text grid (characters, braille and blocks styles)
       --quality <0-100>   JPEG/WebP quality (default 92)
       --mask <image>      Highlight mask, stretched over each input image: white forces glyphs, black keeps
                           them off, mid-gray (128) or transparent leaves the image alone. Glyph styles
