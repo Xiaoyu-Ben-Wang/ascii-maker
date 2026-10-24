@@ -163,23 +163,23 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
     params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 3, bgOpacity: 1, haloBlur: 9, bloom: 0.6, vignette: 0.1 },
   },
   'sharp-ascii': {
-    description: 'Glowing ASCII on the highlights of the sharp photo, dimmed only around the glyphs',
-    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 0, bgOpacity: 1, haloTone: -0.2, bloom: 0.6, vignette: 0.1 },
+    description: 'Glowing ASCII on the highlights of the sharp photo, slightly dimmed around the glyphs',
+    params: { style: 'characters', cellSize: 14, threshold: 0.32, bgBlur: 0, bgOpacity: 1, haloTone: -0.1, bloom: 0.6, vignette: 0.1 },
   },
   cross: {
     description: 'Cross-stitch "+" and "×" marks that grow with brightness',
-    params: { style: 'cross', cellSize: 16, threshold: 0.28, strokeWidth: 0.1, bgBlur: 0, bgOpacity: 1, haloBlur: 14, haloTone: -0.2, glyphTint: 0.3, glyphBoost: 1.5, bloom: 0.6 },
+    params: { style: 'cross', cellSize: 16, threshold: 0.28, strokeWidth: 0.1, bgBlur: 0, bgOpacity: 1, haloBlur: 14, haloTone: -0.1, glyphTint: 0.3, glyphBoost: 1.5, bloom: 0.6 },
   },
   diagonal: {
     description: 'Hatched slashes that follow the image edges, warm film look',
     params: {
       style: 'diagonal', cellSize: 12, threshold: 0.25, strokeWidth: 0.09, diagonalMode: 'edge', bgBlur: 0,
-      bgOpacity: 1, haloBlur: 14, haloTone: -0.2, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.4, vignette: 0.25, grain: 0.06,
+      bgOpacity: 1, haloBlur: 14, haloTone: -0.1, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.4, vignette: 0.25, grain: 0.06,
     },
   },
   dots: {
     description: 'Halftone dots that scale with brightness',
-    params: { style: 'dots', cellSize: 12, threshold: 0.12, bgBlur: 0, bgOpacity: 1, haloBlur: 14, haloTone: -0.2, glyphTint: 0.2, bloom: 0.3 },
+    params: { style: 'dots', cellSize: 12, threshold: 0.12, bgBlur: 0, bgOpacity: 1, haloBlur: 14, haloTone: -0.1, glyphTint: 0.2, bloom: 0.3 },
   },
   'full-ascii': {
     description: 'Classic ASCII art: every cell becomes a character, in the source colors on black',
@@ -216,7 +216,7 @@ export const PRESETS: Record<string, { description: string; params: Partial<Para
     description: 'Everything but the brightest subject becomes ASCII; the subject stays a photo',
     params: {
       style: 'characters', highlightMode: 'relative', threshold: 0, thresholdHigh: 0.8, thresholdSoftness: 0.15, bgBlur: 0, bgOpacity: 1,
-      haloTone: -1, haloBlur: 0, haloRadius: 0.6, glyphTint: 0.1, bloom: 0.3, vignette: 0, grain: 0,
+      haloTone: -0.1, haloBlur: 0, haloRadius: 0.6, glyphTint: 0.35, glyphBoost: 1.5, bloom: 0.3, vignette: 0, grain: 0,
     },
   },
   matrix: {

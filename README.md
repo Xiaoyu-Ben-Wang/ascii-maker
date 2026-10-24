@@ -81,7 +81,7 @@ Settings and saved presets are kept in the browser. Undo (`Ctrl+Z`) covers every
 | Preset | Look |
 | --- | --- |
 | `soft-ascii` | ASCII on the highlights over a softened photo |
-| `sharp-ascii` | ASCII over the sharp photo, darkened around the glyphs |
+| `sharp-ascii` | ASCII over the sharp photo, slightly darkened around the glyphs |
 | `cross`, `diagonal`, `dots` | The shape styles over the photo |
 | `full-ascii`, `full-cross` | Every cell becomes a glyph, on black |
 | `ascii-surround` | ASCII everywhere except the brightest subject, which stays a photo |
