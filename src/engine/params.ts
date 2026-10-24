@@ -1,13 +1,9 @@
-// Render parameters, defaults and presets shared by the browser editor and the CLI.
-
 /** "photo" draws only the background image (its blur and opacity apply), plus the adjustments and effects. */
 export const STYLES = ['characters', 'cross', 'diagonal', 'dots', 'lines', 'dither', 'photo'] as const;
 export type Style = (typeof STYLES)[number];
 
 export const DITHER_ALGOS = [
-  // error diffusion
   'floyd-steinberg', 'atkinson', 'jarvis', 'stucki', 'burkes', 'sierra', 'sierra-2row', 'sierra-lite',
-  // ordered / threshold maps
   'bayer2', 'bayer4', 'bayer8', 'bayer16', 'halftone', 'ign', 'lines-h', 'lines-v', 'lines-diag', 'lines-diag-2', 'noise',
   'none',
 ] as const;
@@ -17,17 +13,18 @@ export const DIAGONAL_MODES = ['edge', 'forward', 'backward', 'mixed'] as const;
 export type DiagonalMode = (typeof DIAGONAL_MODES)[number];
 
 export const COLOR_MODES = ['source', 'mono'] as const;
+export type ColorMode = (typeof COLOR_MODES)[number];
+
 /** "highlights" draws glyphs only where the image is bright; "full" converts every cell, like classic ASCII art. */
 export const COVERAGES = ['highlights', 'full'] as const;
 export type Coverage = (typeof COVERAGES)[number];
+
 /**
- * How a cell's brightness is measured against the threshold. "absolute" uses its luminance as is; "relative" uses its
- * rank among the image's cells, so the threshold is the share of cells left bare; "local" compares it with its
- * surroundings, so only spots brighter than their neighborhood count as highlights.
+ * What a cell's brightness is compared against the threshold as: its luminance ("absolute"), its rank among the
+ * image's cells ("relative"), or how much it stands out from its surroundings ("local").
  */
 export const HIGHLIGHT_MODES = ['absolute', 'relative', 'local'] as const;
 export type HighlightMode = (typeof HIGHLIGHT_MODES)[number];
-export type ColorMode = (typeof COLOR_MODES)[number];
 
 /** Ready-made character ramps for the "characters" style, each ordered dark → bright. */
 export const CHARSETS: Record<string, { chars: string; description: string }> = {
@@ -48,7 +45,6 @@ export const CHARSETS: Record<string, { chars: string; description: string }> = 
 export interface Params {
   style: Style;
 
-  // Source adjustments
   brightness: number; // -1..1
   contrast: number; // 0..3
   saturation: number; // 0..3
@@ -58,15 +54,13 @@ export interface Params {
   /** Pixel-sized params are measured on an image this wide and scale with the output; 0 = absolute pixels. */
   unitWidth: number;
 
-  // Glyph grid
   cellSize: number;
   coverage: Coverage;
   charset: string; // dark → bright, used by "characters"
   font: string;
   highlightMode: HighlightMode;
-  threshold: number; // 0..1 luminance below which a cell gets no glyph
-  /** 0..1 upper end: cells brighter than this get no glyph either (1 = no upper end). */
-  thresholdHigh: number;
+  threshold: number; // 0..1 brightness below which a cell gets no glyph
+  thresholdHigh: number; // 0..1 brightness above which a cell gets no glyph; 1 = no upper end
   thresholdSoftness: number; // 0..1 how gradually glyphs fade in above each end, as a share of the range above it
   localRadius: number; // px, neighborhood size for the "local" highlight mode
   sizeByBrightness: boolean; // scale cross/dots/diagonal/lines with luminance
@@ -78,24 +72,20 @@ export interface Params {
   glyphBoost: number; // brightness multiplier for glyph color
   glyphOpacity: number; // 0..1
 
-  // Background under the glyphs
   bgBlur: number; // px; 0 = sharp source. Glyph styles and "photo".
   glyphBlur: number; // px softening of the glyph layer only
   bgOpacity: number; // 0..1 opacity of the background image over bgColor
   bgColor: string;
-  /** -1..1 the photo near glyphs: below 0 it dims toward bgColor, above 0 it glows (brightens in its own colors). */
-  haloTone: number;
+  haloTone: number; // -1..1 near glyphs: below 0 dims the photo toward bgColor, above 0 brightens it
   haloBlur: number; // extra blur of the photo near glyphs, in px
   haloRadius: number; // how far the halo spreads from the glyphs, in cells
 
-  // Dither style
   ditherAlgo: DitherAlgo;
   palette: string; // palette name, or comma-separated hex list
   pixelSize: number;
   ditherLevels: number; // colors for "auto", per-channel levels for "source"
   ditherSpread: number; // 0..1 error diffusion strength
 
-  // Post effects
   blur: number; // px softening of the finished image
   bloom: number; // 0..2
   bloomRadius: number; // px
@@ -242,14 +232,24 @@ export function resolveParams(...layers: (Partial<Params> | undefined)[]): Param
   return Object.assign({}, DEFAULTS, ...layers.filter(Boolean).map(upgrade));
 }
 
-/** Renamed params in saved settings, presets and config files: haloDim (0..1, dim only) is now haloTone (-1..1). */
+/** The params of `p` that differ from `base`. */
+export function diffParams(p: Params, base: Params = DEFAULTS): Partial<Params> {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(DEFAULTS) as (keyof Params)[]) if (p[k] !== base[k]) out[k] = p[k];
+  return out as Partial<Params>;
+}
+
+/** The CLI flag for a param: cellSize → cell-size. */
+export const paramFlag = (key: string) => key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+
+/** Saved settings and config files may predate the haloDim (0..1) → haloTone (-1..1) rename. */
 function upgrade(layer: Partial<Params> | undefined): Partial<Params> | undefined {
   if (!layer || !('haloDim' in layer)) return layer;
   const { haloDim, ...rest } = layer as Partial<Params> & { haloDim: unknown };
   return typeof haloDim === 'number' && !('haloTone' in rest) ? { ...rest, haloTone: -haloDim } : rest;
 }
 
-/** Numeric ranges used by the UI sliders and CLI validation. */
+/** Slider ranges, also enforced by the CLI. */
 export const RANGES: Partial<Record<keyof Params, [min: number, max: number, step: number]>> = {
   brightness: [-1, 1, 0.01],
   contrast: [0, 3, 0.01],

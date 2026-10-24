@@ -1,5 +1,5 @@
 // Painted highlight masks: a gray canvas per image (128 = untouched) plus a tinted copy shown over the preview.
-import type { HighlightMask } from '../engine/index.ts';
+import type { HighlightMask } from '../../engine/index.ts';
 
 export type MaskTool = 'add' | 'remove' | 'erase';
 
@@ -55,7 +55,6 @@ export class PaintMask {
     this.fill();
   }
 
-  /** A soft round dab at mask pixel (x, y). */
   dab(x: number, y: number, radius: number, tool: MaskTool) {
     const v = VALUE[tool];
     const g = this.gray.createRadialGradient(x, y, 0, x, y, radius);

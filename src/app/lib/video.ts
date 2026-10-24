@@ -1,5 +1,4 @@
-// Video sources in the editor: probing, and decoding single frames for scrubbing.
-// Mediabunny is loaded on first use, so the editor stays light until a video is opened.
+// Video sources in the editor: probing, and decoding single frames for scrubbing. Mediabunny loads on first use.
 import type { CanvasSink, Input } from 'mediabunny';
 
 export type VideoFormat = 'mp4' | 'webm';
@@ -12,13 +11,11 @@ export interface VideoInfo { start: number; duration: number; fps: number; width
 
 export const isVideo = (f: File) => f.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv)$/i.test(f.name);
 
-/** The containers the editor reads. */
 export const inputFormats = (mb: typeof import('mediabunny')) => [mb.MP4, mb.QTFF, mb.WEBM, mb.MATROSKA];
 
 /** H.264 and yuv420 want even dimensions. */
 export const evenSize = (w: number, h: number) => ({ width: Math.max(2, w - (w % 2)), height: Math.max(2, h - (h % 2)) });
 
-/** The output formats this browser can encode at the given size. */
 export async function encodableFormats(width: number, height: number): Promise<VideoFormat[]> {
   const { canEncodeVideo } = await import('mediabunny');
   const ok = await Promise.all(VIDEO_FORMATS.map((f) => canEncodeVideo(f.codec, { ...evenSize(width, height) }).catch(() => false)));

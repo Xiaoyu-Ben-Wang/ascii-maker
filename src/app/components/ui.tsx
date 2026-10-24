@@ -40,7 +40,7 @@ export const Kbd = ({ children }: { children: ReactNode }) => (
   <kbd className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px] text-muted">{children}</kbd>
 );
 
-/** Field label; hovering it explains the field, and it turns accent-colored once the value differs from the preset. */
+/** Hovering explains the field; a dot marks a value changed from the preset. */
 export function Label({ text, hint, modified, onReset }: { text: string; hint?: string; modified?: boolean; onReset?: () => void }) {
   const label = (
     <span
@@ -53,7 +53,6 @@ export function Label({ text, hint, modified, onReset }: { text: string; hint?: 
   return hint ? <Tip side="left" label={<span className="block max-w-56 leading-snug">{hint}</span>}>{label}</Tip> : label;
 }
 
-/** Small reset arrow shown once a field differs from the preset. */
 function ResetButton({ show, onReset, label }: { show?: boolean; onReset?: () => void; label: string }) {
   return (
     <button
@@ -70,7 +69,7 @@ function fmt(v: number, step: number) {
   return v.toFixed(d);
 }
 
-/** Arrow-button jump: one tick on whole-number sliders, otherwise a round value near 1/50 of the range. */
+/** One tick on whole-number sliders, otherwise a round value near 1/50 of the range. */
 function jumpFor(min: number, max: number, step: number) {
   if (step >= 1) return step;
   const raw = (max - min) / 50;
@@ -84,7 +83,6 @@ function StepButton({ dir, label, disabled, onClick }: { dir: -1 | 1; label: str
   return (
     <button
       type="button" tabIndex={-1} aria-label={`${dir < 0 ? 'Decrease' : 'Increase'} ${label}`} disabled={disabled} onClick={onClick}
-      // With a mouse the arrows appear on hover, keeping the panel calm; on touch screens they stay as tap targets.
       className="press grid size-4 shrink-0 place-items-center rounded text-faint transition-opacity duration-150 hover:bg-white/[0.06] hover:text-fg disabled:pointer-events-none disabled:opacity-30 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:disabled:group-hover:opacity-30"
     >
       <Icon className="size-3" />
@@ -92,8 +90,10 @@ function StepButton({ dir, label, disabled, onClick }: { dir: -1 | 1; label: str
   );
 }
 
-/** A slider's value as editable text: typing a number and pressing Enter (or leaving the field) applies it. */
-function ValueInput({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void }) {
+/** A slider's value as editable text, applied on Enter or blur. */
+function ValueInput({ label, value, min, max, step, onChange, className }: {
+  label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; className: string;
+}) {
   const [draft, setDraft] = useState<string | null>(null);
   const commit = () => {
     if (draft !== null) {
@@ -105,13 +105,13 @@ function ValueInput({ label, value, min, max, step, onChange }: { label: string;
   return (
     <input
       aria-label={label}
-      className="w-12 rounded bg-transparent px-1 text-right font-mono text-[11px] text-muted tabular-nums outline-none hover:bg-white/[0.05] focus:bg-white/[0.07] focus:text-fg"
+      className={cx(className, 'rounded bg-transparent px-1 text-right font-mono text-[11px] text-muted tabular-nums outline-none hover:bg-white/[0.05] focus:bg-white/[0.07] focus:text-fg')}
       value={draft ?? fmt(value, step)}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-        if (e.key === 'Escape') { setDraft(null); (e.target as HTMLInputElement).blur(); }
+        if (e.key === 'Enter') e.currentTarget.blur();
+        if (e.key === 'Escape') { setDraft(null); e.currentTarget.blur(); }
       }}
     />
   );
@@ -119,7 +119,7 @@ function ValueInput({ label, value, min, max, step, onChange }: { label: string;
 
 const THUMB = 'block size-3.5 rounded-full bg-fg shadow-[0_1px_4px_rgb(0_0_0/0.5)] outline-none transition-[box-shadow,transform] duration-150 focus-visible:ring-4 focus-visible:ring-accent/30 active:scale-110';
 
-/** Label + two editable values + a two-thumb slider for a low..high band. */
+/** A two-thumb slider for a low..high band. */
 export const RangeField = memo(function RangeField(props: {
   label: string; value: [number, number]; min: number; max: number; step: number; hint?: string; modified?: boolean;
   /** Names of the two ends, for screen readers and the value fields. */
@@ -133,9 +133,9 @@ export const RangeField = memo(function RangeField(props: {
         <Label text={label} hint={hint} modified={modified} onReset={onReset} />
         <span className="flex-1" />
         <ResetButton show={modified} onReset={onReset} label={label} />
-        <ValueInput label={`${label} ${ends[0]}`} value={lo} min={min} max={hi} step={step} onChange={(v) => onChange([v, hi])} />
+        <ValueInput className="w-12" label={`${label} ${ends[0]}`} value={lo} min={min} max={hi} step={step} onChange={(v) => onChange([v, hi])} />
         <span className="font-mono text-[11px] text-faint">–</span>
-        <ValueInput label={`${label} ${ends[1]}`} value={hi} min={lo} max={max} step={step} onChange={(v) => onChange([lo, v])} />
+        <ValueInput className="w-12" label={`${label} ${ends[1]}`} value={hi} min={lo} max={max} step={step} onChange={(v) => onChange([lo, v])} />
       </div>
       <div className="flex items-center gap-1 px-5">
         <Sl.Root className="relative flex h-4 min-w-0 flex-1 touch-none items-center select-none" value={[lo, hi]} min={min} max={max} step={step}
@@ -151,7 +151,7 @@ export const RangeField = memo(function RangeField(props: {
   );
 });
 
-/** Label + editable value + slider. Double-click the label (or click the arrow) to reset. */
+/** Double-clicking the label (or the reset arrow) resets it. */
 export const SliderField = memo(function SliderField(props: {
   label: string; value: number; min: number; max: number; step: number; hint?: string; modified?: boolean;
   /** Fill the track from this value (e.g. 0 on a -1..1 slider) instead of from the minimum. */
@@ -160,17 +160,9 @@ export const SliderField = memo(function SliderField(props: {
 }) {
   const { label, value, min, max, step, hint, modified, origin, onChange, onReset } = props;
   const pct = (v: number) => ((v - min) / (max - min)) * 100;
-  const [draft, setDraft] = useState<string | null>(null);
   const nudge = (dir: -1 | 1) => {
     const v = Math.min(max, Math.max(min, value + dir * jumpFor(min, max, step)));
     onChange(Number((min + Math.round((v - min) / step) * step).toFixed(6)));
-  };
-  const commit = () => {
-    if (draft !== null) {
-      const n = Number(draft);
-      if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)));
-    }
-    setDraft(null);
   };
   return (
     <div className="group py-1.5">
@@ -178,17 +170,7 @@ export const SliderField = memo(function SliderField(props: {
         <Label text={label} hint={hint} modified={modified} onReset={onReset} />
         <span className="flex-1" />
         <ResetButton show={modified} onReset={onReset} label={label} />
-        <input
-          aria-label={`${label} value`}
-          className="w-14 rounded bg-transparent px-1 text-right font-mono text-[11px] text-muted tabular-nums outline-none hover:bg-white/[0.05] focus:bg-white/[0.07] focus:text-fg"
-          value={draft ?? fmt(value, step)}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-            if (e.key === 'Escape') { setDraft(null); (e.target as HTMLInputElement).blur(); }
-          }}
-        />
+        <ValueInput className="w-14" label={`${label} value`} value={value} min={min} max={max} step={step} onChange={onChange} />
       </div>
       <div className="flex items-center gap-1">
         <StepButton dir={-1} label={label} disabled={value <= min} onClick={() => nudge(-1)} />
@@ -202,7 +184,7 @@ export const SliderField = memo(function SliderField(props: {
           {origin !== undefined && (
             <span aria-hidden className="pointer-events-none absolute top-1/2 h-2 w-px -translate-y-1/2 bg-white/25" style={{ left: `${pct(origin)}%` }} />
           )}
-          <Sl.Thumb aria-label={label} className="block size-3.5 rounded-full bg-fg shadow-[0_1px_4px_rgb(0_0_0/0.5)] outline-none transition-[box-shadow,transform] duration-150 focus-visible:ring-4 focus-visible:ring-accent/30 active:scale-110" />
+          <Sl.Thumb aria-label={label} className={THUMB} />
         </Sl.Root>
         <StepButton dir={1} label={label} disabled={value >= max} onClick={() => nudge(1)} />
       </div>
@@ -319,12 +301,9 @@ export function Popover({ trigger, children, align = 'end', open, onOpenChange }
   );
 }
 
-/**
- * Collapsible inspector section. With `toggle`, the header carries an on/off switch: turning it on opens the
- * section and turning it off collapses it. It opens initially if `defaultOpen` (remount it to re-apply that).
- */
-export function Section({ title, children, defaultOpen = true, right, toggle }: {
-  title: string; children: ReactNode; defaultOpen?: boolean; right?: ReactNode;
+/** Collapsible section; a header `toggle` also opens or collapses it. Remount it to re-apply `defaultOpen`. */
+export function Section({ title, children, defaultOpen = true, toggle }: {
+  title: string; children: ReactNode; defaultOpen?: boolean;
   toggle?: { on: boolean; onChange: (v: boolean) => void };
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -333,9 +312,7 @@ export function Section({ title, children, defaultOpen = true, right, toggle }: 
       <summary className="flex cursor-pointer list-none items-center justify-between py-1.5 select-none [&::-webkit-details-marker]:hidden">
         <span className={cx('text-[11px] font-medium tracking-[0.08em] uppercase', toggle && !toggle.on ? 'text-faint/70' : 'text-faint')}>{title}</span>
         <span className="flex items-center gap-2">
-          {right}
           {toggle && (
-            // Keeps a click on the switch from also opening or closing the section.
             <span className="flex" onClick={(e) => e.preventDefault()}>
               <Switch label={title} checked={toggle.on} onChange={(v) => { toggle.onChange(v); setOpen(v); }} />
             </span>

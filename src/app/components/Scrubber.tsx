@@ -1,5 +1,5 @@
 import { Slider as Sl } from 'radix-ui';
-import { formatTime } from './video.ts';
+import { formatTime } from '../lib/video.ts';
 
 /** Scrub-only timeline for a video: picks the frame to preview, with no playback. Arrow keys step one frame. */
 export function Scrubber({ time, duration, fps, onChange }: { time: number; duration: number; fps: number; onChange: (t: number) => void }) {

@@ -125,8 +125,7 @@ export async function convertVideo(input: string, out: string, params: Params, o
     wk.on('error', (e) => fail(e instanceof Error ? e : new Error(String(e))));
   }
 
-  // Slice the raw stream into whole frames.
-  // Copy chunks straight into a preallocated frame (concatenating 64 KB chunks would be quadratic).
+  // Chunks are copied straight into a preallocated frame; concatenating 64 KB chunks would be quadratic.
   let frame = new Uint8Array(frameBytes);
   let filled = 0;
   decoder.stdout.on('data', (chunk: Buffer) => {

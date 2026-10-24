@@ -2,7 +2,7 @@
 // the CPU, decoded frame by frame.
 import * as mb from 'mediabunny';
 import { PRESETS, resolveParams, type HighlightMask, type Params } from '../../src/engine/index.ts';
-import type { VideoJob, VideoWorkerMessage } from '../../src/video-worker.ts';
+import type { VideoJob, VideoMessage } from '../../src/workers/protocol.ts';
 import { report, type Case } from './harness.ts';
 
 const W = 480, H = 270, N = 24;
@@ -30,8 +30,8 @@ async function clip(): Promise<File> {
 
 async function exportVideo(job: VideoJob): Promise<{ blob: Blob; frames: number }> {
   return new Promise((resolve, reject) => {
-    const w = new Worker(new URL('../../src/video-worker.ts', import.meta.url), { type: 'module' });
-    w.onmessage = (e: MessageEvent<VideoWorkerMessage>) => {
+    const w = new Worker(new URL('../../src/workers/video.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (e: MessageEvent<VideoMessage>) => {
       if (e.data.type === 'done') { w.terminate(); resolve(e.data); }
       else if (e.data.type === 'error') { w.terminate(); reject(new Error(e.data.message)); }
     };

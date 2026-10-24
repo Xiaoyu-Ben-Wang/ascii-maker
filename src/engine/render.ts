@@ -1,30 +1,9 @@
+import { scopedMemo, type Memo, type RenderCache } from './cache.ts';
 import { autoPalette, dither } from './dither.ts';
+import { HALO_GAIN, postProcess } from './effects.ts';
+import { blurCells, cellAverages, cellGrid, glyphPlan, stampGlyphs, type CanvasFactory, type HighlightMask } from './glyphs.ts';
 import type { Params } from './params.ts';
-import {
-  adjust, blur, clamp01, cloneF, createF, downsample, fromRGBA, hexToRgb, luma, mulberry32, resizeF, toRGBA,
-  type FImage, type RGBAImage,
-} from './pixels.ts';
-
-/** The subset of CanvasRenderingContext2D the renderer uses (DOM canvas and @napi-rs/canvas both satisfy it). */
-export interface Ctx2D {
-  fillStyle: unknown;
-  strokeStyle: unknown;
-  lineWidth: number;
-  lineCap: string;
-  font: string;
-  textAlign: string;
-  textBaseline: string;
-  clearRect(x: number, y: number, w: number, h: number): void;
-  beginPath(): void;
-  moveTo(x: number, y: number): void;
-  lineTo(x: number, y: number): void;
-  arc(x: number, y: number, r: number, a0: number, a1: number): void;
-  fill(): void;
-  stroke(): void;
-  fillText(text: string, x: number, y: number): void;
-  getImageData(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray };
-}
-export type CanvasFactory = (width: number, height: number) => { getContext(type: '2d'): unknown };
+import { adjust, blur, clamp01, cloneF, createF, fromRGBA, hexToRgb, resizeF, toRGBA, type FImage, type RGBAImage } from './pixels.ts';
 
 export interface RenderOptions {
   createCanvas: CanvasFactory;
@@ -34,65 +13,11 @@ export interface RenderOptions {
   cache?: RenderCache;
   /** Identifies the source pixels; must change whenever they do. */
   sourceKey?: string;
-  /** Video frame number; varies the film grain so it animates instead of sitting still on the image. */
+  /** Video frame number, so film grain animates. */
   frame?: number;
   /** Painted highlight mask; only glyph styles use it. */
   mask?: HighlightMask;
 }
-
-/**
- * Grayscale mask over the source: 128 leaves a cell alone, toward 255 forces a glyph, toward 0 keeps glyphs off.
- * `region` is the part of the mask (in mask pixels) that lines up with the rendered image, e.g. after a crop.
- */
-export interface HighlightMask {
-  width: number;
-  height: number;
-  data: Uint8Array;
-  region?: { x: number; y: number; w: number; h: number };
-}
-
-/** Mask value at cell centers as -1 (remove) .. 1 (add), or null when the mask is blank. */
-function maskCells(m: HighlightMask, cols: number, rows: number, cw: number, ch: number, w: number, h: number): Float32Array | null {
-  const r = m.region ?? { x: 0, y: 0, w: m.width, h: m.height };
-  const out = new Float32Array(cols * rows);
-  let any = false;
-  for (let cy = 0; cy < rows; cy++) {
-    const my = Math.min(m.height - 1, Math.max(0, Math.floor(r.y + (Math.min(h, (cy + 0.5) * ch) / h) * r.h)));
-    for (let cx = 0; cx < cols; cx++) {
-      const mx = Math.min(m.width - 1, Math.max(0, Math.floor(r.x + (Math.min(w, (cx + 0.5) * cw) / w) * r.w)));
-      const v = (m.data[my * m.width + mx] - 128) / (m.data[my * m.width + mx] >= 128 ? 127 : 128);
-      // Ignore the faint edges of soft brush strokes and rounding around 128.
-      if (Math.abs(v) > 0.02) { out[cy * cols + cx] = v; any = true; }
-    }
-  }
-  return any ? out : null;
-}
-
-/** LRU of intermediate images, bounded in bytes. Entries are shared, so callers must never mutate them. */
-export class RenderCache {
-  private entries = new Map<string, FImage>();
-  private bytes = 0;
-  private maxBytes: number;
-  constructor(maxMB = 192) { this.maxBytes = maxMB * 1024 * 1024; }
-  get(key: string, make: () => FImage): FImage {
-    let v = this.entries.get(key);
-    if (v) {
-      this.entries.delete(key);
-    } else {
-      v = make();
-      this.bytes += v.r.byteLength * 3;
-      while (this.bytes > this.maxBytes && this.entries.size) {
-        const oldest = this.entries.keys().next().value!;
-        this.bytes -= this.entries.get(oldest)!.r.byteLength * 3;
-        this.entries.delete(oldest);
-      }
-    }
-    this.entries.set(key, v);
-    return v;
-  }
-}
-
-type Memo = (key: string, make: () => FImage) => FImage;
 
 export interface RenderResult {
   width: number;
@@ -102,61 +27,60 @@ export interface RenderResult {
   text?: string;
 }
 
-const smoothstep = (a: number, b: number, x: number) => {
-  if (b <= a) return x >= a ? 1 : 0;
-  const t = clamp01((x - a) / (b - a));
-  return t * t * (3 - 2 * t);
-};
+/** Factor from param pixels (measured at unitWidth) to source pixels. */
+export const unitScale = (w: number, p: Params, targetWidth = w) => w / (p.unitWidth > 0 ? p.unitWidth : targetWidth);
+
+/** The thinnest stroke in source pixels: one output pixel, so previews match exports. */
+export const minStroke = (w: number, targetWidth = w) => w / targetWidth;
+
+export const hasHalo = (p: Params) => p.coverage !== 'full' && (p.haloTone !== 0 || p.haloBlur > 0);
 
 export function render(src: RGBAImage, p: Params, opts: RenderOptions): RenderResult {
-  // Factor from param pixels to pixels of `src`.
-  const s = src.width / (p.unitWidth > 0 ? p.unitWidth : (opts.targetWidth ?? src.width));
-  const memo: Memo = opts.cache && opts.sourceKey
-    ? (key, make) => opts.cache!.get(`${opts.sourceKey}|${src.width}x${src.height}|${key}`, make)
-    : (_key, make) => make();
+  const s = unitScale(src.width, p, opts.targetWidth);
+  const { cache, sourceKey } = opts;
+  const root: Memo = cache && sourceKey ? (key, make) => cache.get(`${sourceKey}|${src.width}x${src.height}|${key}`, make) : (_key, make) => make();
   const adjKey = `adj:${p.brightness},${p.contrast},${p.saturation},${p.gamma},${p.invert}`;
-  const img = memo(adjKey, () => {
+  const img = root(adjKey, () => {
     const f = fromRGBA(src);
     adjust(f, p);
     return f;
   });
+  const memo = scopedMemo(root, adjKey);
 
   let out: FImage;
   let glow: FImage | undefined;
   let text: string | undefined;
-  if (p.style === 'photo') {
-    out = background(img, p, s, (k, make) => memo(`${adjKey}|${k}`, make));
-  } else if (p.style === 'dither') {
-    out = renderDither(img, p, s, (k, make) => memo(`${adjKey}|${k}`, make));
-  } else {
-    // Source pixels per output pixel: keeps the 1px stroke floor in output pixels so previews match exports.
-    const minPx = src.width / (opts.targetWidth ?? src.width);
-    ({ out, glow, text } = renderGlyphs(img, p, s, opts.createCanvas, minPx, (k, make) => memo(`${adjKey}|${k}`, make), opts.mask));
-  }
+  if (p.style === 'photo') out = background(img, p, s, memo);
+  else if (p.style === 'dither') out = renderDither(img, p, s, memo);
+  else ({ out, glow, text } = renderGlyphs(img, p, s, opts, memo));
 
   postProcess(out, p, s, glow, opts.frame ?? 0);
   return { width: out.width, height: out.height, data: toRGBA(out), text };
 }
 
-/** The photo under the glyphs (or on its own for "photo"): blurred, then faded toward bgColor. A fresh copy, safe to modify. */
-function background(img: FImage, p: Params, s: number, memo: Memo): FImage {
-  return cloneF(memo(`bg:${p.bgBlur * s},${p.bgColor},${p.bgOpacity}`, () => {
-    const b = p.bgBlur > 0 ? blur(img, p.bgBlur * s) : cloneF(img);
-    const [br, bgG, bb] = hexToRgb(p.bgColor);
+/** The photo, blurred and faded toward bgColor. Returns a fresh copy, safe to modify. */
+function background(img: FImage, p: Params, s: number, memo: Memo, bgBlur = p.bgBlur): FImage {
+  return cloneF(memo(`bg:${bgBlur * s},${p.bgColor},${p.bgOpacity}`, () => {
+    const b = bgBlur > 0 ? blur(img, bgBlur * s) : cloneF(img);
+    const [cr, cg, cb] = hexToRgb(p.bgColor);
     const k = p.bgOpacity;
     for (let i = 0; i < b.r.length; i++) {
-      b.r[i] = br * (1 - k) + b.r[i] * k;
-      b.g[i] = bgG * (1 - k) + b.g[i] * k;
-      b.b[i] = bb * (1 - k) + b.b[i] * k;
+      b.r[i] = cr * (1 - k) + b.r[i] * k;
+      b.g[i] = cg * (1 - k) + b.g[i] * k;
+      b.b[i] = cb * (1 - k) + b.b[i] * k;
     }
     return b;
   }));
 }
 
-function renderDither(img: FImage, p: Params, s: number, memo: Memo): FImage {
+/** Size of the dither grid, in dither pixels. */
+export function ditherGrid(w: number, h: number, p: Params, s: number) {
   const px = Math.max(1, p.pixelSize * s);
-  const gw = Math.max(1, Math.round(img.width / px));
-  const gh = Math.max(1, Math.round(img.height / px));
+  return { px, gw: Math.max(1, Math.round(w / px)), gh: Math.max(1, Math.round(h / px)) };
+}
+
+function renderDither(img: FImage, p: Params, s: number, memo: Memo): FImage {
+  const { px, gw, gh } = ditherGrid(img.width, img.height, p, s);
   // Pre-blur so the downsample averages each block instead of point-sampling it.
   const small = memo(`px:${gw}x${gh}`, () => resizeF(px > 1.5 ? blur(img, px * 0.45) : img, gw, gh));
   const d = dither(small, p.ditherAlgo, p.palette, p.ditherLevels, p.ditherSpread, p.seed);
@@ -172,42 +96,16 @@ function renderDither(img: FImage, p: Params, s: number, memo: Memo): FImage {
   return out;
 }
 
-/** Average color of each cw×ch cell. */
-function cellAverages(img: FImage, cols: number, rows: number, cw: number, ch: number): FImage {
-  const out = createF(cols, rows);
-  const cnt = new Float32Array(cols * rows);
-  for (let y = 0; y < img.height; y++) {
-    const cy = Math.min(rows - 1, Math.floor(y / ch));
-    for (let x = 0; x < img.width; x++) {
-      const c = cy * cols + Math.min(cols - 1, Math.floor(x / cw));
-      const i = y * img.width + x;
-      out.r[c] += img.r[i]; out.g[c] += img.g[i]; out.b[c] += img.b[i]; cnt[c]++;
-    }
-  }
-  for (let c = 0; c < cnt.length; c++) if (cnt[c]) { out.r[c] /= cnt[c]; out.g[c] /= cnt[c]; out.b[c] /= cnt[c]; }
-  return out;
-}
-
-export interface CellGrid { cw: number; ch: number; cols: number; rows: number }
-
-export function cellGrid(w: number, h: number, p: Params, s: number): CellGrid {
-  const ch = Math.max(2, p.cellSize * s);
-  // Monospace glyphs are ~0.6 as wide as tall; other styles use square cells.
-  const cw = p.style === 'characters' ? Math.max(2, ch * 0.6) : ch;
-  return { cw, ch, cols: Math.ceil(w / cw), rows: Math.ceil(h / ch) };
-}
-
-function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, memo: Memo, highlightMask?: HighlightMask) {
+function renderGlyphs(img: FImage, p: Params, s: number, opts: RenderOptions, memo: Memo) {
   const { width: w, height: h } = img;
-  const bg = background(img, p, s, memo);
   const grid = cellGrid(w, h, p, s);
   const { cw, ch, cols, rows } = grid;
-  const cells = memo(`cells:${cols}x${rows},${cw},${ch}`, () => cellAverages(img, cols, rows, cw, ch));
-  const layer = glyphLayer(cells, grid, w, h, p, s, createCanvas, minPx, highlightMask);
-  let { glow, alpha } = layer;
+  const cells = memo(`cells:${cols}x${rows},${cw},${ch}`, () => cellAverages(img, grid));
+  const plan = glyphPlan(cells, grid, p, s, opts.createCanvas, minStroke(img.width, opts.targetWidth), w, h, opts.mask);
+  let { glow, alpha } = stampGlyphs(plan, w, h);
 
-  const out = bg;
-  if (p.coverage !== 'full' && (p.haloTone !== 0 || p.haloBlur > 0)) halo(out, img, layer.cover, cols, rows, cw, ch, p, s, memo);
+  const out = background(img, p, s, memo);
+  if (hasHalo(p)) halo(out, img, plan.cover, grid, p, s, memo);
   if (p.glyphBlur > 0) {
     glow = blur(glow, p.glyphBlur * s);
     alpha = blur(alpha, p.glyphBlur * s);
@@ -219,398 +117,36 @@ function renderGlyphs(img: FImage, p: Params, s: number, createCanvas: CanvasFac
     out.g[i] = out.g[i] * (1 - a) + glow.g[i];
     out.b[i] = out.b[i] * (1 - a) + glow.b[i];
   }
-  return { out, glow, text: layer.text };
+  return { out, glow, text: plan.text };
 }
 
 /**
- * Which glyph goes where, before any pixels are drawn: one mask slot, position and color per cell. The CPU stamps it
- * with glyphLayer, the GPU renderer in a shader.
+ * Changes the photo only near glyphs: blurs it by haloBlur, then dims it toward bgColor (haloTone < 0) or lifts
+ * it toward a brighter version of its own colors (haloTone > 0).
  */
-export interface GlyphPlan {
-  /** Size of every mask. */
-  mw: number;
-  mh: number;
-  /** Unique glyph masks (coverage 0..1, mw×mh), by slot, with the cache key of each. */
-  masks: Float32Array[];
-  maskKeys: string[];
-  /** Per cell, in raster order: mask slot (-1 = nothing drawn) and top-left corner of the stamp in image pixels. */
-  slot: Int32Array;
-  x0: Int32Array;
-  y0: Int32Array;
-  /** Per cell: glyph color and opacity, 4 floats. */
-  color: Float64Array;
-  /** Glyph opacity per cell. */
-  cover: Float32Array;
-  text?: string;
-}
-
-export interface GlyphLayer {
-  /** Glyph colors, premultiplied by their coverage. */
-  glow: FImage;
-  /** Glyph coverage, in `r`. */
-  alpha: FImage;
-  /** Glyph opacity per cell. */
-  cover: Float32Array;
-  text?: string;
-}
-
-/** Picks a glyph per cell from the cell averages and stamps them into full-resolution color and alpha layers. */
-export function glyphLayer(cells: FImage, grid: CellGrid, w: number, h: number, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, highlightMask?: HighlightMask): GlyphLayer {
-  const plan = glyphPlan(cells, grid, p, s, createCanvas, minPx, w, h, highlightMask);
-  const { mw, mh, masks, slot, x0: X0, y0: Y0, color } = plan;
-  const glow = createF(w, h);
-  const alpha = createF(w, h);
-  const gr = glow.r, gg = glow.g, gb = glow.b, al = alpha.r;
-  // Cells are stamped in raster order, each over what came before; the GPU shader composites in the same order.
-  for (let c = 0; c < slot.length; c++) {
-    if (slot[c] < 0) continue;
-    const m = masks[slot[c]];
-    const x0 = X0[c], y0 = Y0[c];
-    const r = color[c * 4], g = color[c * 4 + 1], b = color[c * 4 + 2], a = color[c * 4 + 3];
-    const i0 = Math.max(0, -x0), i1 = Math.min(mw, w - x0);
-    for (let j = Math.max(0, -y0), j1 = Math.min(mh, h - y0); j < j1; j++) {
-      let o = (y0 + j) * w + x0 + i0;
-      for (let mi = j * mw + i0, me = j * mw + i1; mi < me; mi++, o++) {
-        const ea = m[mi] * a;
-        if (ea === 0) continue;
-        const k = 1 - ea;
-        gr[o] = gr[o] * k + r * ea; gg[o] = gg[o] * k + g * ea; gb[o] = gb[o] * k + b * ea; al[o] = al[o] * k + ea;
-      }
-    }
-  }
-  return { glow, alpha, cover: plan.cover, text: plan.text };
-}
-
-/** Picks a glyph, color and opacity per cell from the cell averages. */
-export function glyphPlan(cells: FImage, grid: CellGrid, p: Params, s: number, createCanvas: CanvasFactory, minPx: number, w: number, h: number, highlightMask?: HighlightMask): GlyphPlan {
-  const { cw, ch, cols, rows } = grid;
-  const lum = new Float32Array(cols * rows);
-  for (let i = 0; i < lum.length; i++) lum[i] = luma(cells.r[i], cells.g[i], cells.b[i]);
-  // Brightness as the threshold and glyph choice see it; the glyph colors still come from the cells.
-  const bright = highlightLevels(lum, cols, rows, p, (p.localRadius * s) / ch);
-  // Smoothed copy for edge direction, so slashes follow contours rather than fine texture.
-  let edgeLum: Float32Array | undefined;
-  if (p.style === 'diagonal' && p.diagonalMode === 'edge') {
-    const f = createF(cols, rows);
-    f.r.set(lum); f.g.set(lum); f.b.set(lum);
-    edgeLum = blur(f, 1.5).r;
-  }
-
-  // Glyphs are rasterized once into alpha masks (the atlas) and stamped per cell in JS. Drawing each cell through
-  // the canvas is far slower, and native canvases serialize text drawing across threads.
-  const lineWidth = Math.max(minPx, ch * p.strokeWidth);
-  const pad = Math.ceil(Math.max(lineWidth, ch * 0.2));
-  const mw = Math.ceil(cw) + 2 * pad, mh = Math.ceil(ch) + 2 * pad;
-  const fontPx = Math.round(ch);
-  const atlasKey = `${p.style}|${mw}x${mh}|${ch.toFixed(2)}|${cw.toFixed(2)}|${lineWidth.toFixed(2)}|${p.font}`;
-  const masks: Float32Array[] = [];
-  const maskKeys: string[] = [];
-  const slots = new Map<string, number>();
-  /** The slot of a mask, rasterizing it on first use. */
-  const mask = (key: string, draw: (ctx: Ctx2D, x: number, y: number) => void) => {
-    const full = `${atlasKey}|${key}`;
-    let k = slots.get(full);
-    if (k !== undefined) return k;
-    k = masks.length;
-    slots.set(full, k);
-    maskKeys.push(full);
-    masks.push(glyphMask(full, mw, mh, createCanvas, (ctx) => {
-      ctx.fillStyle = '#fff';
-      ctx.strokeStyle = '#fff';
-      ctx.lineCap = 'round';
-      ctx.lineWidth = lineWidth;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = `${fontPx}px ${p.font}`;
-      draw(ctx, mw / 2, mh / 2);
-    }));
-    return k;
-  };
-  // Shape sizes are quantized so a handful of masks cover every brightness.
-  const LEVELS = 24;
-  const level = (t: number) => Math.round(clamp01(t) * LEVELS) / LEVELS;
-
-  const n = cols * rows;
-  const slot = new Int32Array(n).fill(-1);
-  const X0 = new Int32Array(n), Y0 = new Int32Array(n);
-  const color = new Float64Array(n * 4);
-  let i = 0; // the cell being planned
-  const stamp = (k: number, mx: number, my: number, r: number, g: number, b: number, a: number) => {
-    // Stamps entirely outside the image draw nothing.
-    const x0 = Math.round(mx - mw / 2), y0 = Math.round(my - mh / 2);
-    if (x0 >= w || y0 >= h || x0 + mw <= 0 || y0 + mh <= 0) return;
-    slot[i] = k; X0[i] = x0; Y0[i] = y0;
-    color[i * 4] = r; color[i * 4 + 1] = g; color[i * 4 + 2] = b; color[i * 4 + 3] = a;
-  };
-
-  const mono = hexToRgb(p.monoColor);
-  const rand = mulberry32(p.seed);
-  const chars = [...p.charset];
-  const full = p.coverage === 'full';
-  // In full coverage the whole charset (leading space included) spans the luminance range.
-  const charStart = !full && chars[0] === ' ' && chars.length > 1 ? 1 : 0;
-  const textRows: string[] = [];
-  const th = full ? 0 : p.threshold;
-  const fadeEnd = full ? 0 : th + p.thresholdSoftness * (1 - th);
-  // Upper end: glyphs fade out above it, over the same share of the range above it as the fade-in uses.
-  const top = full ? 1 : Math.max(th, p.thresholdHigh);
-  const fadeOutEnd = top + p.thresholdSoftness * (1 - top);
-  const cover = new Float32Array(cols * rows);
-  const painted = highlightMask ? maskCells(highlightMask, cols, rows, cw, ch, w, h) : null;
-
-  for (let cy = 0; cy < rows; cy++) {
-    let line = '';
-    for (let cx = 0; cx < cols; cx++) {
-      i = cy * cols + cx;
-      const l = bright[i];
-      const jitter = rand();
-      // A lower end of 0 means no lower end: even the darkest cells get full glyphs.
-      let a = (th > 0 ? smoothstep(th, fadeEnd, l) : 1) * p.glyphOpacity;
-      if (top < 1) a *= 1 - smoothstep(top, fadeOutEnd, l);
-      // t: 0 at the threshold, 1 at the upper end (full white without one); drives glyph choice and size.
-      let t = top <= th ? 0 : clamp01((l - th) / (top - th));
-      const m = painted ? painted[i] : 0;
-      if (m > 0) {
-        // Forced cells below the threshold pick glyphs by their own brightness, so dark areas get light glyphs.
-        a += (p.glyphOpacity - a) * m;
-        t = Math.max(t, l * m);
-      } else if (m < 0) a *= 1 + m;
-      if (a < 0.02) { line += ' '; continue; }
-      cover[i] = a;
-
-      let r = p.colorMode === 'mono' ? mono[0] : cells.r[i];
-      let g = p.colorMode === 'mono' ? mono[1] : cells.g[i];
-      let b = p.colorMode === 'mono' ? mono[2] : cells.b[i];
-      r = clamp01((r + (1 - r) * p.glyphTint) * p.glyphBoost);
-      g = clamp01((g + (1 - g) * p.glyphTint) * p.glyphBoost);
-      b = clamp01((b + (1 - b) * p.glyphTint) * p.glyphBoost);
-      const mx = cx * cw + cw / 2, my = cy * ch + ch / 2;
-      const q = level(t);
-      const size = p.sizeByBrightness ? 0.3 + 0.7 * q : 1;
-
-      switch (p.style) {
-        case 'characters': {
-          const idx = charStart + Math.min(chars.length - 1 - charStart, Math.floor(t * (chars.length - charStart)));
-          const c = chars[idx];
-          line += c;
-          if (c !== ' ') stamp(mask(`c${c}`, (ctx, x, y) => ctx.fillText(c, x, y)), mx, my, r, g, b, a);
-          break;
-        }
-        case 'cross': {
-          // Faint cells get a small ×, bright cells a bold +.
-          const x = t < 0.3;
-          stamp(mask(`${x ? 'x' : '+'}${size}`, (ctx, px, py) => {
-            const arm = ch * 0.45 * size, d = arm * 0.7;
-            ctx.beginPath();
-            if (x) { ctx.moveTo(px - d, py - d); ctx.lineTo(px + d, py + d); ctx.moveTo(px + d, py - d); ctx.lineTo(px - d, py + d); }
-            else { ctx.moveTo(px - arm, py); ctx.lineTo(px + arm, py); ctx.moveTo(px, py - arm); ctx.lineTo(px, py + arm); }
-            ctx.stroke();
-          }), mx, my, r, g, b, a);
-          break;
-        }
-        case 'diagonal': {
-          let forward = true; // "/"
-          if (p.diagonalMode === 'backward') forward = false;
-          else if (p.diagonalMode === 'mixed') forward = jitter < 0.5;
-          else if (p.diagonalMode === 'edge') {
-            const E = edgeLum!;
-            const L = (x: number, y: number) => E[Math.min(rows - 1, Math.max(0, y)) * cols + Math.min(cols - 1, Math.max(0, x))];
-            const gx = L(cx + 1, cy - 1) + 2 * L(cx + 1, cy) + L(cx + 1, cy + 1) - L(cx - 1, cy - 1) - 2 * L(cx - 1, cy) - L(cx - 1, cy + 1);
-            const gy = L(cx - 1, cy + 1) + 2 * L(cx, cy + 1) + L(cx + 1, cy + 1) - L(cx - 1, cy - 1) - 2 * L(cx, cy - 1) - L(cx + 1, cy - 1);
-            // Stroke runs along the edge, i.e. perpendicular to the gradient.
-            if (Math.abs(gx) + Math.abs(gy) > 0.2) forward = gx * gy >= 0;
-          }
-          const f = p.sizeByBrightness ? 0.45 + 0.55 * q : 1;
-          stamp(mask(`${forward ? 'f' : 'b'}${f}`, (ctx, px, py) => {
-            const half = (ch / 2) * f;
-            ctx.beginPath();
-            if (forward) { ctx.moveTo(px - half, py + half); ctx.lineTo(px + half, py - half); }
-            else { ctx.moveTo(px - half, py - half); ctx.lineTo(px + half, py + half); }
-            ctx.stroke();
-          }), mx, my, r, g, b, a);
-          break;
-        }
-        case 'dots': {
-          const rad = (ch / 2) * (p.sizeByBrightness ? Math.sqrt(q) * 0.95 : 0.8);
-          if (rad < 0.4) break;
-          stamp(mask(`o${rad.toFixed(2)}`, (ctx, px, py) => { ctx.beginPath(); ctx.arc(px, py, rad, 0, Math.PI * 2); ctx.fill(); }), mx, my, r, g, b, a);
-          break;
-        }
-        case 'lines': {
-          stamp(mask(`|${size}`, (ctx, px, py) => {
-            const half = (ch / 2) * size;
-            ctx.beginPath(); ctx.moveTo(px, py - half); ctx.lineTo(px, py + half); ctx.stroke();
-          }), mx, my, r, g, b, a);
-          break;
-        }
-      }
-    }
-    textRows.push(line.replace(/\s+$/, ''));
-  }
-
-  return { mw, mh, masks, maskKeys, slot, x0: X0, y0: Y0, color, cover, text: p.style === 'characters' ? textRows.join('\n') : undefined };
-}
-
-/** Dims or brightens, and/or blurs, the photo only near glyphs, so the rest of the image stays as it is. */
-function halo(bg: FImage, img: FImage, cover: Float32Array, cols: number, rows: number, cw: number, ch: number, p: Params, s: number, memo: Memo) {
-  const c = createF(cols, rows);
-  c.r.set(cover);
-  // Spread at cell resolution, then scale up to the cell grid (which can overhang the image edge).
+function halo(bg: FImage, img: FImage, cover: Float32Array, { cols, rows, cw, ch }: ReturnType<typeof cellGrid>, p: Params, s: number, memo: Memo) {
+  // Spread at cell resolution, then scale up to the cell grid, which can overhang the image edge.
   const gw = Math.round(cols * cw);
-  const spread = resizeF(blur(c, p.haloRadius), gw, Math.round(rows * ch)).r;
-  const soft = p.haloBlur > 0 ? background(img, { ...p, bgBlur: p.bgBlur + p.haloBlur }, s, memo) : null;
-  // Dimming fades toward the background color; a glow lifts each pixel toward a brighter version of its own color.
+  const spread = resizeF({ ...createF(cols, rows), r: blurCells(cover, cols, rows, p.haloRadius) }, gw, Math.round(rows * ch)).r;
+  const soft = p.haloBlur > 0 ? background(img, p, s, memo, p.bgBlur + p.haloBlur) : null;
   const [cr, cg, cb] = hexToRgb(p.bgColor);
-  const tone = Math.abs(p.haloTone), glow = p.haloTone > 0;
+  const tone = Math.abs(p.haloTone), lifts = p.haloTone > 0;
   const lift = (v: number) => 1 - (1 - v) * (1 - v) * (1 - v);
   for (let i = 0; i < bg.r.length; i++) {
-    // The gain makes a lone glyph's halo nearly as strong as a cluster's.
-    const m = clamp01(spread[Math.floor(i / bg.width) * gw + (i % bg.width)] * 3);
+    const m = clamp01(spread[Math.floor(i / bg.width) * gw + (i % bg.width)] * HALO_GAIN);
     if (m === 0) continue;
     if (soft) {
       bg.r[i] += (soft.r[i] - bg.r[i]) * m; bg.g[i] += (soft.g[i] - bg.g[i]) * m; bg.b[i] += (soft.b[i] - bg.b[i]) * m;
     }
     const d = tone * m;
-    if (glow) { bg.r[i] += (lift(bg.r[i]) - bg.r[i]) * d; bg.g[i] += (lift(bg.g[i]) - bg.g[i]) * d; bg.b[i] += (lift(bg.b[i]) - bg.b[i]) * d; }
+    if (lifts) { bg.r[i] += (lift(bg.r[i]) - bg.r[i]) * d; bg.g[i] += (lift(bg.g[i]) - bg.g[i]) * d; bg.b[i] += (lift(bg.b[i]) - bg.b[i]) * d; }
     else { bg.r[i] += (cr - bg.r[i]) * d; bg.g[i] += (cg - bg.g[i]) * d; bg.b[i] += (cb - bg.b[i]) * d; }
   }
 }
 
 /**
- * Per-cell brightness compared against the threshold. "relative" replaces luminance with its rank among the cells
- * (the share of cells at or below it), so a bright photo only lights up its brightest part. "local" measures how
- * much brighter a cell is than its surroundings (a blur `radius` cells wide), so even, bright areas stay bare while
- * spots that stand out still get glyphs.
- */
-function highlightLevels(lum: Float32Array, cols: number, rows: number, p: Params, radius: number): Float32Array {
-  if (p.highlightMode === 'relative') {
-    // Ranked on luminance rounded to 1/1024, so cells that are equal to the eye tie exactly; otherwise rounding noise
-    // (the GPU's cell averages differ from the CPU's in the last bits) reorders flat areas such as sky. Tied cells
-    // share the middle rank of their group, so a flat area doesn't count as brighter than half of itself.
-    const q = lum.map((v) => Math.round(v * 1024));
-    const sorted = q.slice().sort();
-    const n = sorted.length;
-    const out = new Float32Array(n);
-    const bound = (v: number, inclusive: boolean) => {
-      let lo = 0, hi = n;
-      while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid] < v || (inclusive && sorted[mid] === v)) lo = mid + 1; else hi = mid; }
-      return lo;
-    };
-    for (let i = 0; i < n; i++) out[i] = (bound(q[i], false) + bound(q[i], true)) / (2 * n);
-    return out;
-  }
-  if (p.highlightMode === 'local') {
-    const f = createF(cols, rows);
-    f.r.set(lum);
-    const m = blur(f, Math.max(1, radius)).r;
-    const out = new Float32Array(lum.length);
-    // A quarter of the absolute level keeps big bright shapes faintly present; the rest is contrast with the area.
-    for (let i = 0; i < lum.length; i++) out[i] = clamp01(0.25 * lum[i] + 2.5 * (lum[i] - m[i]));
-    return out;
-  }
-  return lum;
-}
-
-function postProcess(img: FImage, p: Params, s: number, glowSource: FImage | undefined, frame: number) {
-  const { width: w, height: h } = img;
-  const n = w * h;
-
-  if (p.blur > 0) {
-    const b = blur(img, p.blur * s);
-    img.r.set(b.r); img.g.set(b.g); img.b.set(b.b);
-  }
-
-  if (p.bloom > 0) {
-    // Bright-pass, then a tight halo plus a wide haze, computed at half resolution (the glow is low-frequency).
-    const srcImg = glowSource ?? img;
-    const bright = createF(w, h);
-    const lo = p.bloomThreshold - 0.1, hi = p.bloomThreshold + 0.15;
-    for (let i = 0; i < n; i++) {
-      const k = smoothstep(lo, hi, luma(srcImg.r[i], srcImg.g[i], srcImg.b[i]));
-      if (k === 0) continue;
-      bright.r[i] = srcImg.r[i] * k; bright.g[i] = srcImg.g[i] * k; bright.b[i] = srcImg.b[i] * k;
-    }
-    const f = w > 64 && h > 64 ? 2 : 1;
-    const small = f > 1 ? downsample(bright, f) : bright;
-    const tight = blur(small, (p.bloomRadius * s * 0.4) / f);
-    const wide = blur(small, (p.bloomRadius * s * 1.6) / f);
-    const st = p.bloom;
-    for (let i = 0; i < small.r.length; i++) {
-      tight.r[i] = st * (0.55 * tight.r[i] + 0.65 * wide.r[i]);
-      tight.g[i] = st * (0.55 * tight.g[i] + 0.65 * wide.g[i]);
-      tight.b[i] = st * (0.55 * tight.b[i] + 0.65 * wide.b[i]);
-    }
-    const glow = f > 1 ? resizeF(tight, w, h) : tight;
-    // Soft shoulder instead of a hard clip keeps blown highlights smooth.
-    for (let i = 0; i < n; i++) {
-      img.r[i] = shoulder(img.r[i] + glow.r[i]);
-      img.g[i] = shoulder(img.g[i] + glow.g[i]);
-      img.b[i] = shoulder(img.b[i] + glow.b[i]);
-    }
-  }
-
-  if (p.chromatic > 0) {
-    const off = p.chromatic * s;
-    const r0 = img.r.slice(), b0 = img.b.slice();
-    const cx = w / 2, cy = h / 2, norm = Math.hypot(cx, cy);
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        // Offset grows toward the edges, like lens fringing.
-        const dx = ((x - cx) / norm) * off, dy = ((y - cy) / norm) * off;
-        const i = y * w + x;
-        const rx = Math.min(w - 1, Math.max(0, Math.round(x + dx))), ry = Math.min(h - 1, Math.max(0, Math.round(y + dy)));
-        const bx = Math.min(w - 1, Math.max(0, Math.round(x - dx))), by = Math.min(h - 1, Math.max(0, Math.round(y - dy)));
-        img.r[i] = r0[ry * w + rx];
-        img.b[i] = b0[by * w + bx];
-      }
-  }
-
-  // Scanlines, vignette, grain and the final clamp in one pass.
-  const sp = Math.max(1.5, p.scanlineSpacing * s);
-  const lift = 1 + p.scanlines * 0.3;
-  const vig = p.vignette > 0 ? vignetteMask(w, h, p.vignette, p.vignetteSize, p.vignetteX, p.vignetteY) : null;
-  const rand = mulberry32(p.seed * 7919 + 17 + frame * 104729);
-  const grain = p.grain;
-  for (let y = 0; y < h; y++) {
-    let rowM = 1;
-    if (p.scanlines > 0) {
-      const v = Math.sin((Math.PI * (y + 0.5)) / sp);
-      rowM = (1 - p.scanlines * v * v) * lift;
-    }
-    for (let x = 0, i = y * w; x < w; x++, i++) {
-      const m = vig ? rowM * vig[i] : rowM;
-      const g = grain > 0 ? (rand() - 0.5) * grain : 0;
-      img.r[i] = clamp01(img.r[i] * m + g);
-      img.g[i] = clamp01(img.g[i] * m + g);
-      img.b[i] = clamp01(img.b[i] * m + g);
-    }
-  }
-}
-
-let vigCache: { w: number; h: number; v: number; size: number; vx: number; vy: number; mask: Float32Array } | null = null;
-// Distances are scaled by the half-size rather than the distance to each edge, so an off-center point darkens the
-// far side more than the near one.
-function vignetteMask(w: number, h: number, v: number, size: number, vx: number, vy: number): Float32Array {
-  const c = vigCache;
-  if (c && c.w === w && c.h === h && c.v === v && c.size === size && c.vx === vx && c.vy === vy) return c.mask;
-  const mask = new Float32Array(w * h);
-  const cx = w * vx, cy = h * vy, hw = w / 2, hh = h / 2;
-  for (let y = 0; y < h; y++) {
-    const dy = (y - cy) / hh;
-    for (let x = 0; x < w; x++) {
-      const dx = (x - cx) / hw;
-      mask[y * w + x] = 1 - v * smoothstep(0.35 * size, size, Math.sqrt((dx * dx + dy * dy) / 2));
-    }
-  }
-  vigCache = { w, h, v, size, vx, vy, mask };
-  return mask;
-}
-
-const shoulder = (v: number) => (v <= 0.8 ? v : 0.8 + 0.2 * (1 - Math.exp(-(v - 0.8) / 0.2)));
-
-/**
- * Resolves an "auto" dither palette against `src` and returns params with that palette spelled out as hex,
- * so every frame of a video uses the same colors instead of flickering between per-frame palettes.
+ * Resolves an "auto" dither palette against `src` and spells it out as hex, so every frame of a video uses the
+ * same colors instead of flickering between per-frame palettes.
  */
 export function lockPalette(src: RGBAImage, p: Params): Params {
   if (p.style !== 'dither' || p.palette !== 'auto') return p;
@@ -621,20 +157,4 @@ export function lockPalette(src: RGBAImage, p: Params): Params {
   const hex = (v: number) => Math.round(clamp01(v) * 255).toString(16).padStart(2, '0');
   const cols = autoPalette(small, Math.max(2, Math.round(p.ditherLevels)), p.seed);
   return { ...p, palette: cols.map(([r, g, b]) => `#${hex(r)}${hex(g)}${hex(b)}`).join(',') };
-}
-
-const atlas = new Map<string, Float32Array>();
-/** Alpha mask of one glyph, rendered once and cached (across renders too, which matters for video). */
-function glyphMask(key: string, mw: number, mh: number, createCanvas: CanvasFactory, draw: (ctx: Ctx2D) => void): Float32Array {
-  let m = atlas.get(key);
-  if (m) return m;
-  const ctx = createCanvas(mw, mh).getContext('2d') as Ctx2D;
-  ctx.clearRect(0, 0, mw, mh);
-  draw(ctx);
-  const d = ctx.getImageData(0, 0, mw, mh).data;
-  m = new Float32Array(mw * mh);
-  for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3] / 255;
-  if (atlas.size > 2000) atlas.clear();
-  atlas.set(key, m);
-  return m;
 }

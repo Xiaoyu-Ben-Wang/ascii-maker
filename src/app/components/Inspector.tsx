@@ -2,41 +2,53 @@ import { Crosshair } from 'lucide-react';
 import { memo, useRef, useState } from 'react';
 import {
   CHARSETS, COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, RANGES, STYLES, type Params, type Style,
-} from '../engine/index.ts';
+} from '../../engine/index.ts';
 import { Button, ColorField, Label, RangeField, Row, Section, Select, SliderField, Switch, TextField, Tip, cx } from './ui.tsx';
 
 type Kind = 'range' | 'select' | 'check' | 'color' | 'text' | 'point' | 'band';
 type Option = { value: string; label: string; hint?: string };
-interface Field { key: keyof Params; label: string;
-  /** For a slider whose range spans 0: fill from 0 rather than from the minimum. */
+
+interface Field {
+  key: keyof Params;
+  label: string;
+  kind?: Kind;
+  hint?: string | ((p: Params) => string);
+  options?: readonly Option[];
+  styles?: readonly Style[];
+  when?: (p: Params) => boolean;
+  /** Slider spanning 0 that fills from 0 rather than from the minimum. */
   centered?: boolean;
-  /** For a "band": the param holding the upper end (`key` holds the lower end). */
+  /** For a band: the param holding the upper end. */
   key2?: keyof Params;
   /** Named values offered in a dropdown above a text field. */
-  library?: Record<string, { chars: string; description: string }>; hint?: string | ((p: Params) => string); kind?: Kind; options?: readonly Option[]; styles?: readonly Style[]; when?: (p: Params) => boolean;
-  /** Less-used: tucked behind the section's "More" button unless changed from the preset. */
+  library?: Record<string, { chars: string; description: string }>;
+  /** Tucked behind "More options" unless changed from the preset. */
   more?: boolean;
-  /** Extra params to change along with this field. */
-  also?: (v: unknown, base: Params) => Partial<Params> }
-/** An on/off effect inside the Effects section: off sets `key` to 0, on restores its last value (or `on`). */
+  /** Other params to change along with this one. */
+  also?: (v: unknown, base: Params) => Partial<Params>;
+}
+
+/** A numeric effect with an on/off switch: off sets `key` to 0, on restores its last value (or `on`). */
 interface Effect { label: string; hint?: string; key: keyof Params; on: number; fields: Field[] }
-/**
- * `switch` puts an on/off switch in the header for a numeric effect: off sets it to 0, on restores its last value
- * (or `on`). The section starts collapsed while the effect is off. `effects` lists switchable effects as rows.
- */
+
 interface Group {
-  title: string; styles?: readonly Style[]; fields: Field[]; collapsed?: boolean; switch?: { key: keyof Params; on: number }; styling?: boolean;
-  /** Shows the section only when this holds. */
+  title: string;
+  fields: Field[];
+  styles?: readonly Style[];
   when?: (p: Params) => boolean;
-  /** Opens the section initially when this holds (instead of `collapsed`). */
+  collapsed?: boolean;
+  /** Opens initially when this holds, instead of following `collapsed`. */
   openWhen?: (p: Params) => boolean;
+  /** Header switch for a numeric effect; the section is open while it is on. */
+  switch?: { key: keyof Params; on: number };
+  /** Header switch between the glyph styles and plain photo. */
+  styling?: boolean;
   effects?: Effect[];
 }
 
 const GLYPH: Style[] = ['characters', 'cross', 'diagonal', 'dots', 'lines'];
 const SHAPES: Style[] = ['cross', 'diagonal', 'dots', 'lines'];
 
-/** Builds select options from an enum, with a short explanation per value. */
 const opts = <T extends string>(values: readonly T[], hints: Partial<Record<T, string>> = {}): Option[] =>
   values.map((v) => ({ value: v, label: v, hint: hints[v] }));
 
@@ -53,10 +65,8 @@ const GROUPS: Group[] = [
       {
         key: 'coverage', label: 'Coverage', kind: 'select', styles: GLYPH,
         options: opts(COVERAGES, { highlights: 'Glyphs only on bright parts, over the photo', full: 'Every cell becomes a glyph, like classic ASCII art' }),
-        // Full coverage hides the photo underneath so only glyphs remain; going back restores it.
         also: (v, base) => ({ bgOpacity: v === 'full' ? 0 : base.coverage === 'full' ? DEFAULTS.bgOpacity : base.bgOpacity }),
       },
-      // With full coverage the photo is hidden, so the color behind the glyphs belongs up here with the look itself.
       { key: 'bgColor', label: 'Background color', hint: 'Shows between and behind the glyphs.', kind: 'color', styles: GLYPH, when: (p) => p.coverage === 'full' },
       { key: 'cellSize', label: 'Size', styles: GLYPH, hint: 'Height of each glyph cell. Smaller means more, finer glyphs.' },
       { key: 'charset', label: 'Characters', hint: 'Used from dark to bright, left to right. Pick a set or type your own.', kind: 'text', styles: ['characters'], library: CHARSETS },
@@ -155,6 +165,7 @@ const STYLE_GLYPH: Record<Style, string> = {
 };
 
 type Set = (patch: Partial<Params>) => void;
+const hintFor = (f: Field, p: Params) => (typeof f.hint === 'function' ? f.hint(p) : f.hint);
 
 const FieldControl = memo(function FieldControl({ f, hint, value, set, base, baseParams }: { f: Field; hint?: string; value: Params[keyof Params]; set: Set; base: Params[keyof Params]; baseParams: Params }) {
   const kind: Kind = f.kind ?? (typeof DEFAULTS[f.key] === 'boolean' ? 'check' : 'range');
@@ -218,7 +229,6 @@ function StylePicker({ style, onChange }: { style: Style; onChange: (s: Style) =
   );
 }
 
-/** A low..high pair of params on one two-thumb slider. */
 function BandField({ f, hint, params, base, set }: { f: Field; hint?: string; params: Params; base: Params; set: Set }) {
   const lo = f.key, hi = f.key2!;
   const [min, max, step] = RANGES[lo] ?? [0, 1, 0.01];
@@ -230,7 +240,6 @@ function BandField({ f, hint, params, base, set }: { f: Field; hint?: string; pa
   );
 }
 
-/** Vignette center: picked by clicking the preview, shown as percentages. */
 function PointField({ label, params, base, set, picking, onPicking }: { label: string; params: Params; base: Params; set: Set; picking: boolean; onPicking: (v: boolean) => void }) {
   const moved = params.vignetteX !== base.vignetteX || params.vignetteY !== base.vignetteY;
   return (
@@ -252,7 +261,6 @@ function PointField({ label, params, base, set, picking, onPicking }: { label: s
   );
 }
 
-/** One switchable effect: its name and switch, and its settings while it's on. */
 function EffectRow({ e, params, base, set, toggle }: { e: Effect; params: Params; base: Params; set: Set; toggle: (v: boolean) => void }) {
   const on = (params[e.key] as number) > 0;
   return (
@@ -260,7 +268,7 @@ function EffectRow({ e, params, base, set, toggle }: { e: Effect; params: Params
       <Row label={e.label} hint={e.hint}><Switch label={e.label} checked={on} onChange={toggle} /></Row>
       {on && (
         <div className="mb-1 ml-1 border-l border-line pl-3">
-          {e.fields.map((f) => <FieldControl key={f.key} f={f} hint={typeof f.hint === 'function' ? f.hint(params) : f.hint} value={params[f.key]} base={base[f.key]} baseParams={base} set={set} />)}
+          {e.fields.map((f) => <FieldControl key={f.key} f={f} hint={hintFor(f, params)} value={params[f.key]} base={base[f.key]} baseParams={base} set={set} />)}
         </div>
       )}
     </div>
@@ -270,11 +278,10 @@ function EffectRow({ e, params, base, set, toggle }: { e: Effect; params: Params
 export function Inspector({ params, base, set, picking, onPicking, resetKey }: {
   params: Params; base: Params; set: Set; picking: boolean; onPicking: (v: boolean) => void;
   /** Changes when a preset is applied, so sections re-open or collapse to match it. */
-  resetKey: string;
+  resetKey: number;
 }) {
-  // Values from before a switch was turned off, restored when it's turned back on.
+  /** Values from before a switch was turned off, restored when it is turned back on. */
   const last = useRef<Partial<Record<keyof Params, unknown>>>({});
-  // Sections showing their less-used settings.
   const [more, setMore] = useState<Record<string, boolean>>({});
   const switchFor = (key: keyof Params, on: number) => (v: boolean) => {
     if (!v) last.current[key] = params[key];
@@ -283,12 +290,11 @@ export function Inspector({ params, base, set, picking, onPicking, resetKey }: {
   const control = (f: Field) => f.kind === 'point'
     ? <PointField key={f.key} label={f.label} params={params} base={base} set={set} picking={picking} onPicking={onPicking} />
     : f.kind === 'band'
-    ? <BandField key={f.key} f={f} hint={typeof f.hint === 'function' ? f.hint(params) : f.hint} params={params} base={base} set={set} />
-    : <FieldControl key={f.key} f={f} hint={typeof f.hint === 'function' ? f.hint(params) : f.hint} value={params[f.key]} base={base[f.key]} baseParams={base} set={set} />;
+    ? <BandField key={f.key} f={f} hint={hintFor(f, params)} params={params} base={base} set={set} />
+    : <FieldControl key={f.key} f={f} hint={hintFor(f, params)} value={params[f.key]} base={base[f.key]} baseParams={base} set={set} />;
   const changed = (f: Field) => params[f.key] !== base[f.key] || (!!f.key2 && params[f.key2] !== base[f.key2]);
   const fieldsOf = (g: Group) => {
     const shown = g.fields.filter((f) => (!f.styles || f.styles.includes(params.style)) && (!f.when || f.when(params)));
-    // Less-used settings stay hidden unless asked for, or changed from the preset so nothing changed is ever hidden.
     const hidden = more[g.title] ? [] : shown.filter((f) => f.more && !changed(f));
     const extra = shown.filter((f) => f.more).length;
     return (

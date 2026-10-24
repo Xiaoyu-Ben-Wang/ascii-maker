@@ -1,17 +1,15 @@
 #!/usr/bin/env node
-// CLI for the ascii-maker engine: same renderer as the browser editor, run under Node.
 import { createCanvas, ImageData, loadImage } from '@napi-rs/canvas';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-  CHARSETS, COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, PRESETS, RANGES, SIZE_NAMES, STYLES, frameFor, render,
-  resolveParams, type HighlightMask, type Params, type SizeName,
+  CHARSETS, COLOR_MODES, COVERAGES, DEFAULTS, DIAGONAL_MODES, DITHER_ALGOS, HIGHLIGHT_MODES, PALETTE_NAMES, PRESETS, RANGES, SIZE_NAMES, STYLES, frameFor,
+  paramFlag as kebab, render, resolveParams, type HighlightMask, type Params, type SizeName,
 } from '../src/engine/index.ts';
-import { hexToRgb } from '../src/engine/pixels.ts';
+import { hexToRgb, luma } from '../src/engine/pixels.ts';
 import { VIDEO_EXTS, convertVideo } from './video.ts';
 
-const kebab = (s: string) => s.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
 const paramKeys = Object.keys(DEFAULTS) as (keyof Params)[];
 
 const HELP = `ascii-maker — algorithmic ASCII / cross / diagonal / dots / dither renderer for images and video
@@ -114,7 +112,6 @@ function parseFlags(values: Record<string, unknown>): Partial<Params> {
 
 function validate(p: Params) {
   for (const k of paramKeys) {
-    if (!(k in DEFAULTS)) continue;
     if (typeof p[k] !== typeof DEFAULTS[k]) fail(`${k} must be a ${typeof DEFAULTS[k]}, got ${JSON.stringify(p[k])}`);
     const range = RANGES[k];
     const v = p[k];
@@ -165,7 +162,6 @@ async function main() {
   }
   const config = values.config ? (JSON.parse(readFileSync(values.config as string, 'utf8')) as Partial<Params>) : undefined;
   const params = resolveParams(preset, config, parseFlags(values));
-  // A charset can be named from the library (see --list).
   if (CHARSETS[params.charset]) params.charset = CHARSETS[params.charset].chars;
   validate(params);
   if (values['dump-params']) return void console.log(JSON.stringify(params, null, 2));
@@ -214,18 +210,17 @@ async function main() {
   }
 }
 
-/** A mask image as gray levels (its luminance over mid-gray). */
+/** A mask image as gray levels: its luminance, over mid-gray so transparent areas leave the image alone. */
 async function loadMask(path: string): Promise<HighlightMask> {
   if (!existsSync(path)) fail(`mask not found: ${path}`);
   const img = await loadImage(readFileSync(path));
-  const c = createCanvas(img.width, img.height);
-  // Transparent areas count as mid-gray (leave alone), not black (remove).
-  c.getContext('2d').fillStyle = 'rgb(128,128,128)';
-  c.getContext('2d').fillRect(0, 0, img.width, img.height);
-  c.getContext('2d').drawImage(img, 0, 0);
-  const rgba = c.getContext('2d').getImageData(0, 0, img.width, img.height).data;
+  const ctx = createCanvas(img.width, img.height).getContext('2d');
+  ctx.fillStyle = 'rgb(128,128,128)';
+  ctx.fillRect(0, 0, img.width, img.height);
+  ctx.drawImage(img, 0, 0);
+  const rgba = ctx.getImageData(0, 0, img.width, img.height).data;
   const data = new Uint8Array(img.width * img.height);
-  for (let i = 0; i < data.length; i++) data[i] = Math.round(0.2126 * rgba[i * 4] + 0.7152 * rgba[i * 4 + 1] + 0.0722 * rgba[i * 4 + 2]);
+  for (let i = 0; i < data.length; i++) data[i] = Math.round(luma(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]));
   return { width: img.width, height: img.height, data };
 }
 

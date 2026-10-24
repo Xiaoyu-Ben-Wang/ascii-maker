@@ -1,16 +1,13 @@
 import { Film, Plus, X } from 'lucide-react';
 import { memo, useEffect, useRef, useState } from 'react';
-import { frameFor, type Params, type SizeName } from '../engine/index.ts';
-import type { Renderer } from './renderer.ts';
+import { frameFor, type Params, type SizeName } from '../../engine/index.ts';
+import type { Img } from '../hooks/useImages.ts';
+import type { Renderer } from '../lib/renderer.ts';
+import { formatTime } from '../lib/video.ts';
 import { cx } from './ui.tsx';
-import { formatTime, type VideoSource } from './video.ts';
-
-/** An image in the set. For a video, `bitmap` is the frame at `time` (seconds). */
-export interface Img { id: number; bitmap: ImageBitmap; name: string; width: number; height: number; video?: VideoSource; time?: number }
 
 const THUMB_W = 720;
 
-/** One rendered thumbnail; re-renders (debounced) when params change. */
 const Card = memo(function Card({ img, params, size, renderer, gen, active, onOpen, onRemove }: {
   img: Img; params: Params; size: SizeName; renderer: Renderer | null; gen: number; active: boolean; onOpen: () => void; onRemove: () => void;
 }) {
@@ -19,7 +16,7 @@ const Card = memo(function Card({ img, params, size, renderer, gen, active, onOp
   const [visible, setVisible] = useState(false);
   const [cssWidth, setCssWidth] = useState(0);
   const frame = frameFor(img.width, img.height, size);
-  /** What is currently drawn, so scrolling back into view doesn't re-render an unchanged card. */
+  /** What is drawn, so scrolling back into view doesn't re-render an unchanged card. */
   const drawn = useRef<{ params: Params; size: SizeName; width: number; gen: number; bitmap: ImageBitmap } | null>(null);
 
   // Only render cards on (or near) screen, at the size they are shown.
@@ -94,7 +91,6 @@ export function Gallery({ images, activeId, params, size, renderer, gen, onOpen,
   );
 }
 
-/** Source thumbnail drawn once from the bitmap. */
 const SourceThumb = memo(function SourceThumb({ bitmap }: { bitmap: ImageBitmap }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {

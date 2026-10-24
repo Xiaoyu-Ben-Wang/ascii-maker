@@ -1,5 +1,5 @@
 import { Check, Eraser, Eye, EyeOff, Minus, Plus, Trash2, Undo2 } from 'lucide-react';
-import type { MaskTool } from './mask.ts';
+import type { MaskTool } from '../lib/mask.ts';
 import { Button, Kbd, Tip, cx } from './ui.tsx';
 
 const TOOLS: { tool: MaskTool; label: string; key: string; icon: typeof Plus }[] = [

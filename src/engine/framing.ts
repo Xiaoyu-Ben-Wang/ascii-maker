@@ -1,13 +1,14 @@
-// Output sizing shared by the editor and CLI: the original size, or a standard long-edge size that keeps the aspect ratio.
-
+/** Long edge of each standard output size. */
 export const SIZE_PRESETS = { '1080p': 1920, '2k': 2560, '4k': 3840 } as const;
 export type SizePreset = keyof typeof SIZE_PRESETS;
 export type SizeName = 'source' | SizePreset;
 export const SIZE_NAMES = ['source', ...Object.keys(SIZE_PRESETS)] as SizeName[];
 
+export interface Crop { x: number; y: number; w: number; h: number }
+
 export interface Frame {
   /** Region of the source to use, in source pixels (currently always the whole image). */
-  crop: { x: number; y: number; w: number; h: number };
+  crop: Crop;
   width: number;
   height: number;
 }

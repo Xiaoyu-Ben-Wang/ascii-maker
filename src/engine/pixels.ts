@@ -1,5 +1,3 @@
-// Float RGB image buffers and the low-level filters the renderer is built from.
-
 export interface RGBAImage {
   width: number;
   height: number;
@@ -79,7 +77,13 @@ export function adjust(img: FImage, o: { brightness: number; contrast: number; s
 
 export const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
-// Running-sum box blur along one axis (edges clamped); three passes approximate a Gaussian.
+export function smoothstep(a: number, b: number, x: number) {
+  if (b <= a) return x >= a ? 1 : 0;
+  const t = clamp01((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+}
+
+/** Running-sum box blur along one axis, edges clamped; three passes approximate a Gaussian. */
 function boxPass(src: Float32Array, dst: Float32Array, w: number, h: number, r: number, horizontal: boolean) {
   const scale = 1 / (2 * r + 1);
   if (horizontal) {
@@ -95,7 +99,7 @@ function boxPass(src: Float32Array, dst: Float32Array, w: number, h: number, r: 
     }
     return;
   }
-  // Vertical: sweep whole rows at once so memory access stays sequential.
+  // Vertical sweeps whole rows at once so memory access stays sequential.
   const acc = new Float32Array(w);
   for (let k = -r; k <= r; k++) {
     const row = Math.min(h - 1, Math.max(0, k)) * w;
@@ -111,7 +115,7 @@ function boxPass(src: Float32Array, dst: Float32Array, w: number, h: number, r: 
   }
 }
 
-// 3-tap [k, 1-2k, k] pass with variance sigma² (2k = sigma²), for blurs smaller than one box radius.
+/** 3-tap [k, 1-2k, k] pass with variance 2k, for blurs below one box radius. */
 function tapPass(ch: Float32Array, w: number, h: number, k: number) {
   const tmp = new Float32Array(ch.length);
   for (let y = 0; y < h; y++)
@@ -188,7 +192,7 @@ export function blur(img: FImage, sigma: number): FImage {
   return f > 1 ? resizeF(small, img.width, img.height) : small;
 }
 
-/** Deterministic PRNG so CLI output is reproducible. */
+/** Seeded PRNG, so renders are reproducible. */
 export function mulberry32(seed: number) {
   let a = seed >>> 0;
   return () => {

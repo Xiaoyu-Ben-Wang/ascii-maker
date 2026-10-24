@@ -220,7 +220,7 @@ A 30 s 1080p clip (900 frames) takes about 32 s for `soft-ascii` and 34 s for `d
 
 ## How it works
 
-Every render runs the same pipeline (`src/engine/render.ts`), in floating point with each color channel from 0 to 1.
+Every render runs the same pipeline (`src/engine/render.ts`, with glyphs in `glyphs.ts`, post effects in `effects.ts` and the WebGL2 version in `gpu/`), in floating point with each color channel from 0 to 1.
 
 1. **Adjust.** Invert, saturation, contrast, brightness and gamma are applied to the source.
 

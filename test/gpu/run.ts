@@ -2,6 +2,7 @@
 // SwiftShader, so no GPU is needed). Run with `pnpm test:gpu`; needs Playwright's Chromium
 // (`pnpm exec playwright-core install chromium` once).
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
 import { chromium, type Browser } from 'playwright-core';
 import { createServer, type ViteDevServer } from 'vite';
@@ -11,7 +12,7 @@ let server: ViteDevServer;
 let browser: Browser;
 
 before(async () => {
-  server = await createServer({ root: new URL('../..', import.meta.url).pathname, server: { port: 0, host: '127.0.0.1' }, logLevel: 'error' });
+  server = await createServer({ root: fileURLToPath(new URL('../..', import.meta.url)), server: { port: 0, host: '127.0.0.1' }, logLevel: 'error' });
   await server.listen();
   browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 });

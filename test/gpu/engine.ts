@@ -1,7 +1,7 @@
 // Browser-side GPU checks, run by test/gpu/run.ts. Each case renders on the GPU and checks it against the CPU
 // renderer or against another GPU path that must give identical pixels.
 import { CHARSETS, DEFAULTS, PRESETS, STYLES, render, resolveParams, type HighlightMask, type Params } from '../../src/engine/index.ts';
-import { GpuRenderer, gpuOrCpu, type ImageInput } from '../../src/engine/gpu.ts';
+import { GpuRenderer, gpuOrCpu, type ImageInput } from '../../src/engine/gpu/index.ts';
 import type { RGBAImage } from '../../src/engine/pixels.ts';
 import { report, type Case } from './harness.ts';
 

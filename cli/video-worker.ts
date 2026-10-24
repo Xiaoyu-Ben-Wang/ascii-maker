@@ -1,4 +1,3 @@
-// Renders video frames for cli/video.ts on a worker thread.
 import { createCanvas } from '@napi-rs/canvas';
 import { parentPort } from 'node:worker_threads';
 import { render, type Params } from '../src/engine/index.ts';

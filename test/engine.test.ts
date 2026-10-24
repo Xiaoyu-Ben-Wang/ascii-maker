@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
+import { unzipSync } from 'fflate';
 import { bayerMatrix, dither, PALETTES } from '../src/engine/dither.ts';
 import { DITHER_ALGOS, PRESETS, RenderCache, STYLES, render, resolveParams } from '../src/engine/index.ts';
 import { createF, hexToRgb } from '../src/engine/pixels.ts';
@@ -179,27 +180,15 @@ test('size presets scale the long edge and keep the aspect ratio', async () => {
 });
 
 test('zip writer produces an archive standard tools can read', async () => {
-  const { zip } = await import('../src/app/zip.ts');
-  const { crc32 } = await import('node:zlib');
+  const { zip } = await import('../src/app/lib/files.ts');
   const files = [
     { name: 'a.txt', blob: new Blob(['hello ascii']) },
     { name: 'é/b.bin', blob: new Blob([new Uint8Array(70_000).map((_, i) => i * 7)]) },
   ];
   const buf = Buffer.from(await (await zip(files)).arrayBuffer());
-  const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
-  assert.equal(buf.readUInt16LE(eocd + 10), 2);
-  let p = buf.readUInt32LE(eocd + 16);
-  for (const f of files) {
-    const data = Buffer.from(await f.blob.arrayBuffer());
-    assert.equal(buf.readUInt32LE(p), 0x02014b50);
-    assert.equal(buf.readUInt32LE(p + 16), crc32(data));
-    const nameLen = buf.readUInt16LE(p + 28);
-    assert.equal(buf.subarray(p + 46, p + 46 + nameLen).toString('utf8'), f.name);
-    const local = buf.readUInt32LE(p + 42);
-    const start = local + 30 + buf.readUInt16LE(local + 26);
-    assert.deepEqual(buf.subarray(start, start + data.length), data);
-    p += 46 + nameLen;
-  }
+  const entries = unzipSync(buf);
+  assert.deepEqual(Object.keys(entries), files.map((f) => f.name));
+  for (const f of files) assert.deepEqual(Buffer.from(entries[f.name]), Buffer.from(await f.blob.arrayBuffer()));
   // Cross-check with Python's zipfile when it's available (it is on dev machines and GitHub runners).
   const dir = tempDir('ascii-zip-');
   writeFileSync(join(dir, 't.zip'), buf);
