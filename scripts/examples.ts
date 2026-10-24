@@ -10,9 +10,9 @@ const { values } = parseArgs({ options: { photo: { type: 'string' } } });
 mkdirSync(OUT, { recursive: true });
 
 const PLAN: Record<string, string[]> = {
-  jellyfish: ['soft-ascii', 'cross', 'diagonal', 'dither-scanline'],
+  jellyfish: ['soft-ascii', 'cross', 'diagonal', 'dither-scanline', 'ascii-surround'],
   planet: ['cross', 'soft-ascii'],
-  clouds: ['diagonal', 'dots', 'ascii-surround'],
+  clouds: ['diagonal', 'dots'],
   orbs: ['gameboy-dither', 'matrix'],
 };
 

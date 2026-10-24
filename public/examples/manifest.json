@@ -28,6 +28,13 @@
     "description": "Chunky Floyd–Steinberg dither with CRT scanlines and bloom"
   },
   {
+    "source": "jellyfish",
+    "preset": "ascii-surround",
+    "file": "jellyfish-ascii-surround.jpg",
+    "thumb": "jellyfish-ascii-surround-thumb.webp",
+    "description": "Everything but the brightest subject becomes ASCII; the subject stays a photo"
+  },
+  {
     "source": "planet",
     "preset": "cross",
     "file": "planet-cross.jpg",
@@ -54,13 +61,6 @@
     "file": "clouds-dots.jpg",
     "thumb": "clouds-dots-thumb.webp",
     "description": "Halftone dots that scale with brightness"
-  },
-  {
-    "source": "clouds",
-    "preset": "ascii-surround",
-    "file": "clouds-ascii-surround.jpg",
-    "thumb": "clouds-ascii-surround-thumb.webp",
-    "description": "Everything but the brightest subject becomes ASCII; the subject stays a photo"
   },
   {
     "source": "orbs",

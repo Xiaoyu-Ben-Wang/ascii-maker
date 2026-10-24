@@ -16,7 +16,7 @@ Crops at full resolution from 1920 px renders, each one preset with no changes. 
 | --- | --- |
 | ![Jellyfish drawn with plus and times marks](public/examples/jellyfish-cross-detail.jpg) | ![Jellyfish hatched with diagonal strokes that follow its edges](public/examples/jellyfish-diagonal-detail.jpg) |
 | **`dither-scanline`** | **`ascii-surround`** |
-| ![Jellyfish dithered into a few blue tones with scanlines](public/examples/jellyfish-dither-scanline-detail.jpg) | ![A cloud left as a photo, with the sky around it turned into ASCII](public/examples/clouds-ascii-surround-detail.jpg) |
+| ![Jellyfish dithered into a few blue tones with scanlines](public/examples/jellyfish-dither-scanline-detail.jpg) | ![Jellyfish left as a photo, with the water around them turned into ASCII](public/examples/jellyfish-ascii-surround-detail.jpg) |
 | **`cross`** | **`dots`** |
 | ![Edge of a purple planet covered in cross marks](public/examples/planet-cross-detail.jpg) | ![Cloud rendered as halftone dots](public/examples/clouds-dots-detail.jpg) |
 | **`matrix`** | **`gameboy-dither`** |
